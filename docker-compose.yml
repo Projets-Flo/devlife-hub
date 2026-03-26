@@ -1,0 +1,92 @@
+services:
+
+  # ── PostgreSQL ────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: devlife_db
+    environment:
+      POSTGRES_USER: devlife
+      POSTGRES_PASSWORD: devlife
+      POSTGRES_DB: devlife_hub
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devlife -d devlife_hub"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── MLflow ────────────────────────────────────────────────────
+  mlflow:
+    image: python:3.11-slim
+    container_name: devlife_mlflow
+    command: >
+      sh -c "pip install mlflow psycopg2-binary boto3 -q &&
+             mlflow server
+               --backend-store-uri postgresql://devlife:devlife@db:5432/devlife_hub
+               --default-artifact-root /mlartifacts
+               --host 0.0.0.0 --port 5000"
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow_artifacts:/mlartifacts
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ── Prefect ───────────────────────────────────────────────────
+  prefect:
+    image: prefecthq/prefect:3-latest
+    container_name: devlife_prefect
+    command: prefect server start --host 0.0.0.0
+    ports:
+      - "4200:4200"
+    volumes:
+      - prefect_data:/root/.prefect
+    environment:
+      PREFECT_UI_API_URL: http://localhost:4200/api
+
+  # ── API FastAPI ───────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: devlife_api
+    command: uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    environment:
+      DATABASE_URL: postgresql://devlife:devlife@db:5432/devlife_hub
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ── Dashboard Streamlit ───────────────────────────────────────
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: devlife_dashboard
+    command: streamlit run src/dashboard/app.py --server.port 8501 --server.address 0.0.0.0
+    ports:
+      - "8501:8501"
+    volumes:
+      - .:/app
+    environment:
+      API_BASE_URL: http://api:8000
+    env_file:
+      - .env
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  mlflow_artifacts:
+  prefect_data:

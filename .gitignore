@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Environnement virtuel
+.venv/
+venv/
+env/
+
+# Variables d'environnement (ne JAMAIS committer)
+.env
+.env.local
+.env.production
+
+# Data (raw data non versionnée via DVC)
+data/raw/
+data/processed/
+data/exports/
+
+# Samsung Health (données perso — jamais sur GitHub)
+*.zip
+*.json.gz
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# DVC
+.dvc/cache/
+.dvc/tmp/
+
+# Logs
+logs/
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Notebooks checkpoints
+.ipynb_checkpoints/
+notebooks/**/*.ipynb
+
+# Tests
+.coverage
+coverage.xml
+.pytest_cache/
+htmlcov/
+
+# Docker volumes (si montés localement)
+postgres_data/
