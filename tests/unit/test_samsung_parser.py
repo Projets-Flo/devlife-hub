@@ -3,15 +3,12 @@ Tests unitaires du parser Samsung Health.
 Lance avec : pytest tests/unit/test_samsung_parser.py -v
 """
 
-import io
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
 from src.sport.parsers.samsung_health import ACTIVITY_MAP, SamsungHealthParser
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -35,6 +32,7 @@ def sample_csv_file(tmp_path: Path) -> Path:
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
+
 class TestActivityMap:
     def test_running_mapped(self):
         assert ACTIVITY_MAP[1001] == "running"
@@ -44,7 +42,6 @@ class TestActivityMap:
 
 
 class TestSamsungHealthParser:
-
     def test_parse_workouts_no_files(self, parser: SamsungHealthParser):
         """Sans fichier, retourne une liste vide sans erreur."""
         sessions = parser.parse_workouts()
@@ -66,7 +63,7 @@ class TestSamsungHealthParser:
         sessions = parser.parse_workouts()
         strength = sessions[1]
         assert strength.sport_type == "strength"
-        assert strength.distance_km is None   # pas de distance en muscu
+        assert strength.distance_km is None  # pas de distance en muscu
 
     def test_to_dataframe(self, parser: SamsungHealthParser, sample_csv_file: Path):
         sessions = parser.parse_workouts()
@@ -75,7 +72,7 @@ class TestSamsungHealthParser:
         assert len(df) == 2
         assert "distance_km" in df.columns
         assert pd.api.types.is_datetime64_any_dtype(df["date"])
-        assert df["date"].is_monotonic_increasing   # trié par date
+        assert df["date"].is_monotonic_increasing  # trié par date
 
     def test_weekly_summary(self, parser: SamsungHealthParser, sample_csv_file: Path):
         sessions = parser.parse_workouts()

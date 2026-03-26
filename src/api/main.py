@@ -40,6 +40,7 @@ app.add_middleware(
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok", "env": settings.app_env}

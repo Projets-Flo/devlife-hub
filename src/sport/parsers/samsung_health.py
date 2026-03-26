@@ -17,18 +17,15 @@ Usage :
     df = parser.to_dataframe(sessions)
 """
 
-import json
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 from loguru import logger
 
 from src.common.config import settings
 from src.common.database import SportType, WorkoutSession
-
 
 # Mapping des types d'activité Samsung → enum interne
 ACTIVITY_MAP: dict[int, str] = {
@@ -102,19 +99,21 @@ class SamsungHealthParser:
 
         return sessions
 
-    def _row_to_session(self, row: pd.Series) -> Optional[WorkoutSession]:
+    def _row_to_session(self, row: pd.Series) -> WorkoutSession | None:
         """Convertit une ligne CSV en WorkoutSession."""
         try:
             # Colonnes Samsung Health (peuvent varier selon la version de l'appli)
-            activity_type = int(row.get("exercise_type", row.get("com.samsung.health.exercise.exercise_type", 0)))
+            activity_type = int(
+                row.get("exercise_type", row.get("com.samsung.health.exercise.exercise_type", 0))
+            )
             sport_type = ACTIVITY_MAP.get(activity_type, SportType.OTHER)
 
             # Timestamp (Samsung stocke en ms UTC)
             raw_start = row.get("start_time", row.get("com.samsung.health.exercise.start_time"))
             if pd.isna(raw_start):
                 return None
-            if isinstance(raw_start, (int, float)):
-                start_dt = datetime.fromtimestamp(raw_start / 1000, tz=timezone.utc)
+            if isinstance(raw_start, int | float):
+                start_dt = datetime.fromtimestamp(raw_start / 1000, tz=UTC)
             else:
                 start_dt = pd.to_datetime(raw_start, utc=True).to_pydatetime()
 
@@ -131,8 +130,12 @@ class SamsungHealthParser:
             calories = int(float(calories)) if pd.notna(calories) else None
 
             # Fréquence cardiaque
-            hr_mean = row.get("mean_heart_rate", row.get("com.samsung.health.exercise.mean_heart_rate", None))
-            hr_max = row.get("max_heart_rate", row.get("com.samsung.health.exercise.max_heart_rate", None))
+            hr_mean = row.get(
+                "mean_heart_rate", row.get("com.samsung.health.exercise.mean_heart_rate", None)
+            )
+            hr_max = row.get(
+                "max_heart_rate", row.get("com.samsung.health.exercise.max_heart_rate", None)
+            )
 
             # Allure moyenne (running)
             avg_pace = None

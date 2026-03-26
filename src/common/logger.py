@@ -4,7 +4,6 @@ Colore la sortie en dev, format JSON structuré en prod.
 """
 
 import sys
-from pathlib import Path
 
 from loguru import logger
 

@@ -6,7 +6,6 @@ Charge automatiquement le fichier .env grâce à pydantic-settings.
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 

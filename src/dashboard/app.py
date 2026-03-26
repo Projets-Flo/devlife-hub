@@ -14,7 +14,8 @@ st.set_page_config(
 )
 
 # ── CSS minimal ───────────────────────────────────────────────────────────────
-st.markdown("""
+st.markdown(
+    """
 <style>
     .metric-card {
         background: #f8f9fa; border-radius: 10px;
@@ -24,7 +25,9 @@ st.markdown("""
     .status-applied { color: #fd7e14; font-weight: 500; }
     .status-interview { color: #198754; font-weight: 500; }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # ── Sidebar navigation ────────────────────────────────────────────────────────
 with st.sidebar:
@@ -72,7 +75,9 @@ elif page == "🔍 Offres d'emploi":
     with col3:
         contract = st.selectbox("Contrat", ["Tous", "CDI", "CDD", "Stage", "Freelance"])
 
-    st.info("📡 Le scraping automatique sera activé en Phase 2. En attendant, importe des offres via le CLI.")
+    st.info(
+        "📡 Le scraping automatique sera activé en Phase 2. En attendant, importe des offres via le CLI."
+    )
 
     # Placeholder table
     st.subheader("Offres récentes")
@@ -95,20 +100,26 @@ elif page == "🏃 Sport":
         3. Tu recevras un ZIP par email — dépose-le ici ⬇️
         """)
 
-        uploaded = st.file_uploader("Dépose ton export Samsung Health (ZIP ou CSV)", type=["zip", "csv"])
+        uploaded = st.file_uploader(
+            "Dépose ton export Samsung Health (ZIP ou CSV)", type=["zip", "csv"]
+        )
         if uploaded:
             st.success(f"Fichier reçu : {uploaded.name} ({uploaded.size / 1024:.0f} Ko)")
             if st.button("Importer les séances", type="primary"):
                 with st.spinner("Parsing en cours…"):
                     # Import réel : sera connecté au parser
-                    st.info("Parser Samsung Health — à connecter (src/sport/parsers/samsung_health.py)")
+                    st.info(
+                        "Parser Samsung Health — à connecter (src/sport/parsers/samsung_health.py)"
+                    )
 
     with tab3:
         st.info("Le générateur de plan basé sur la météo sera disponible en Phase 1.")
 
 elif page == "🎯 Coach":
     st.title("🎯 Coach quotidien")
-    st.info("Le module Coach (Claude API) sera activé une fois l'API configurée (.env → ANTHROPIC_API_KEY).")
+    st.info(
+        "Le module Coach (Claude API) sera activé une fois l'API configurée (.env → ANTHROPIC_API_KEY)."
+    )
 
     st.subheader("Prochaines actions suggérées")
     st.markdown("""
