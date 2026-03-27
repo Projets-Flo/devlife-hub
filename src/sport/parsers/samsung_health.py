@@ -25,6 +25,13 @@ ACTIVITY_MAP: dict[int, str] = {
     1002: SportType.RUNNING,
 }
 
+# Séances à exclure manuellement (données corrompues)
+EXCLUDED_DATES = [
+    "2021-12-06",  # bug captation distance
+    "2022-06-01",  # bug captation automatique
+    "2022-06-08",  # bug captation automatique
+]
+
 COL = {
     "uuid": "com.samsung.health.exercise.datauuid",
     "start": "com.samsung.health.exercise.start_time",
@@ -115,6 +122,10 @@ class SamsungHealthParser:
                 return None
             start_dt = pd.to_datetime(raw_start, utc=False).to_pydatetime()
 
+            # Exclure les séances blacklistées
+            if start_dt.strftime("%Y-%m-%d") in EXCLUDED_DATES:
+                return None
+
             raw_dur = row.get(COL["duration"])
             duration_min = round(float(raw_dur) / 60000, 1) if pd.notna(raw_dur) else None
 
@@ -134,6 +145,8 @@ class SamsungHealthParser:
             raw_speed = row.get(COL["speed_mean"])
             if pd.notna(raw_speed) and float(raw_speed) > 0:
                 avg_pace = round(1000 / (float(raw_speed) * 60), 2)
+            elif distance_km and duration_min and distance_km > 0:
+                avg_pace = round(duration_min / distance_km, 2)
 
             raw_gain = row.get(COL["alt_gain"])
             elevation = round(float(raw_gain), 1) if pd.notna(raw_gain) else None

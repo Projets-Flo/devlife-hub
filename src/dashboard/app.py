@@ -19,6 +19,7 @@ st.set_page_config(
 with st.sidebar:
     st.title("🚀 DevLife Hub")
     st.caption("Tableau de bord personnel")
+    st.caption("Par Florian REY")
     st.divider()
     page = st.radio(
         "Navigation",
@@ -40,7 +41,13 @@ def load_sport_data():
 @st.cache_data(show_spinner="Chargement des courses…")
 def load_runs():
     df, parser = load_sport_data()
-    runs = df[(df["sport_type"] == "running") & (df["distance_km"].notna())].copy()
+    df, parser = load_sport_data()
+    runs = df[
+        (df["sport_type"] == "running")
+        & (df["distance_km"].notna())
+        & (df["distance_km"] >= 1)
+        & (df["duration_min"] >= 2)
+    ].copy()
     return runs, parser
 
 
