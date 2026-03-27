@@ -269,7 +269,7 @@ elif page == "🎯 Coach":
 elif page == "⚙️ ML Pipeline":
     st.title("⚙️ ML Pipeline")
     st.info(
-        "MLflow disponible sur localhost:5000. " "Les premiers modèles seront trackés en Phase 3."
+        "MLflow disponible sur localhost:5000. " "Les premiers modèles seront trackés plus tard"
     )
     c1, c2 = st.columns(2)
     with c1:
