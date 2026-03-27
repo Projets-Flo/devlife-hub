@@ -22,13 +22,7 @@ from src.common.config import settings
 from src.common.database import SportType, WorkoutSession
 
 ACTIVITY_MAP: dict[int, str] = {
-    1001: SportType.WALKING,
     1002: SportType.RUNNING,
-    3001: SportType.CYCLING,
-    10001: SportType.STRENGTH,
-    11007: SportType.RUNNING,
-    13001: SportType.OTHER,
-    14001: SportType.OTHER,
 }
 
 COL = {
@@ -112,6 +106,10 @@ class SamsungHealthParser:
                 return None
             sport_type = ACTIVITY_MAP.get(int(float(raw_type)), SportType.OTHER)
 
+            pkg = row.get("com.samsung.health.exercise.pkg_name")
+            if pkg != "com.sec.android.app.shealth":
+                return None
+
             raw_start = row.get(COL["start"])
             if pd.isna(raw_start):
                 return None
@@ -182,7 +180,7 @@ class SamsungHealthParser:
         return df.sort_values("date").reset_index(drop=True)
 
     def stats_running(self, df: pd.DataFrame) -> dict:
-        runs = df[df["sport_type"] == SportType.RUNNING].copy()
+        runs = df.copy()
         if runs.empty:
             return {}
         return {

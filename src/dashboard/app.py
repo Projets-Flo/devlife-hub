@@ -16,7 +16,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.title("🚀 DevLife Hub")
     st.caption("Tableau de bord personnel")
@@ -30,7 +29,6 @@ with st.sidebar:
     st.caption("v0.1.0 · dev mode")
 
 
-# ── Chargement données Samsung (mis en cache) ─────────────────────────────────
 @st.cache_data(show_spinner="Chargement des séances…")
 def load_sport_data():
     parser = SamsungHealthParser()
@@ -39,50 +37,55 @@ def load_sport_data():
     return df, parser
 
 
-# ── Pages ─────────────────────────────────────────────────────────────────────
-
-if page == "🏠 Accueil":
-    st.title("Bonjour Florian 👋")
-    st.caption("Voici ton résumé")
-
+@st.cache_data(show_spinner="Chargement des courses…")
+def load_runs():
     df, parser = load_sport_data()
-    runs = df[df["sport_type"] == "running"] if not df.empty else pd.DataFrame()
+    runs = df[(df["sport_type"] == "running") & (df["distance_km"].notna())].copy()
+    return runs, parser
+
+
+# ── Accueil ───────────────────────────────────────────────────────────────────
+if page == "🏠 Accueil":
+    st.title("Tableau de bord DevLife Hub ")
+    # Sous-titre
+    st.subheader("Voici ton résumé")
+
+    runs, parser = load_runs()
+    stats = parser.stats_running(runs)
 
     col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Séances totales", len(df))
-    with col2:
-        st.metric("Courses enregistrées", len(runs))
-    with col3:
-        total_km = round(runs["distance_km"].sum(), 1) if not runs.empty else 0
-        st.metric("Km courus au total", f"{total_km} km")
-    with col4:
-        st.metric("Nouvelles offres", "—")
+    col1.metric("Total courses", len(runs))
+    col2.metric("Km totaux", f"{stats.get('total_km', 0)} km")
+    col3.metric("Plus longue sortie", f"{stats.get('best_km', 0)} km")
+    col4.metric("Nouvelles offres", "—")
 
     st.divider()
+
     if not runs.empty:
-        st.subheader("Progression km — 3 derniers mois")
+        st.subheader("Km courus — 3 derniers mois")
         recent = runs[runs["date"] >= runs["date"].max() - pd.Timedelta(days=90)].copy()
         recent["week"] = recent["date"].dt.to_period("W").dt.start_time
         weekly = recent.groupby("week")["distance_km"].sum().reset_index()
-        fig = px.bar(weekly, x="week", y="distance_km", labels={"week": "", "distance_km": "km"})
+        fig = px.bar(
+            weekly,
+            x="week",
+            y="distance_km",
+            labels={"week": "", "distance_km": "km"},
+        )
         fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=220)
         st.plotly_chart(fig, use_container_width=True)
 
 
+# ── Sport ─────────────────────────────────────────────────────────────────────
 elif page == "🏃 Sport":
     st.title("🏃 Activité sportive")
-    df, parser = load_sport_data()
+    runs, parser = load_runs()
 
-    if df.empty:
-        st.warning(
-            "Aucune donnée — vérifie que le dossier samsunghealth est bien dans data/exports/samsung_health/"
-        )
+    if runs.empty:
+        st.warning("Aucune donnée.")
         st.stop()
 
-    tab1, tab2, tab3 = st.tabs(["📊 Courses", "💪 Toutes séances", "📅 Semaines"])
-
-    runs = df[df["sport_type"] == "running"].copy()
+    tab1, tab2, tab3 = st.tabs(["📊 Courses", "📋 Détail", "📅 Semaines"])
 
     with tab1:
         st.subheader("Mes courses")
@@ -90,29 +93,26 @@ elif page == "🏃 Sport":
         if runs.empty:
             st.info("Aucune course trouvée.")
         else:
-            # Métriques clés
-            stats = parser.stats_running(df)
+            stats = parser.stats_running(runs)
+
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Total courses", stats.get("total_sessions", 0))
             c2.metric("Km totaux", f"{stats.get('total_km', 0)} km")
             c3.metric("Plus longue sortie", f"{stats.get('best_km', 0)} km")
-            c4.metric("Allure moyenne", f"{stats.get('avg_pace', 0)} min/km")
+            c4.metric("Sortie moyenne", f"{stats.get('avg_km', 0)} km")
 
             c5, c6, c7, c8 = st.columns(4)
-            c5.metric("FC moyenne", f"{stats.get('avg_hr', 0):.0f} bpm")
+            c5.metric("Allure moyenne", f"{stats.get('avg_pace', 0)} min/km")
             c6.metric("Meilleure allure", f"{stats.get('best_pace', 0)} min/km")
-            c7.metric("Calories totales", f"{stats.get('total_calories', 0):,}")
-            c8.metric("Sortie moyenne", f"{stats.get('avg_km', 0)} km")
+            c7.metric("FC moyenne", f"{stats.get('avg_hr', 0):.0f} bpm")
+            c8.metric("Calories totales", f"{stats.get('total_calories', 0):,}")
 
             st.divider()
 
-            # Filtre période
-            col_f1, col_f2 = st.columns([2, 1])
-            with col_f1:
-                periode = st.selectbox(
-                    "Période",
-                    ["Tout", "12 derniers mois", "6 derniers mois", "3 derniers mois"],
-                )
+            periode = st.selectbox(
+                "Période",
+                ["Tout", "12 derniers mois", "6 derniers mois", "3 derniers mois"],
+            )
             cutoffs = {
                 "3 derniers mois": 90,
                 "6 derniers mois": 180,
@@ -123,7 +123,6 @@ elif page == "🏃 Sport":
                     runs["date"] >= runs["date"].max() - pd.Timedelta(days=cutoffs[periode])
                 ]
 
-            # Graphe distance par sortie
             st.subheader("Distance par sortie")
             fig1 = px.scatter(
                 runs,
@@ -137,7 +136,6 @@ elif page == "🏃 Sport":
             fig1.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0))
             st.plotly_chart(fig1, use_container_width=True)
 
-            # Graphe allure
             runs_with_pace = runs.dropna(subset=["avg_pace_min_km"])
             if not runs_with_pace.empty:
                 st.subheader("Évolution de l'allure (min/km)")
@@ -151,52 +149,38 @@ elif page == "🏃 Sport":
                 fig2.update_yaxes(autorange="reversed")
                 st.plotly_chart(fig2, use_container_width=True)
 
-            # Tableau détail
-            with st.expander("Voir toutes les sorties"):
-                display = runs[
-                    ["date", "distance_km", "duration_min", "avg_pace_min_km", "avg_hr", "calories"]
-                ].copy()
-                display["date"] = display["date"].dt.strftime("%d/%m/%Y %H:%M")
-                display.columns = [
-                    "Date",
-                    "Distance (km)",
-                    "Durée (min)",
-                    "Allure (min/km)",
-                    "FC moy.",
-                    "Calories",
-                ]
-                st.dataframe(display, use_container_width=True, hide_index=True)
+            runs_with_hr = runs.dropna(subset=["avg_hr"])
+            if not runs_with_hr.empty:
+                st.subheader("Évolution de la fréquence cardiaque")
+                fig3 = px.line(
+                    runs_with_hr.sort_values("date"),
+                    x="date",
+                    y="avg_hr",
+                    labels={"date": "", "avg_hr": "FC moy. (bpm)"},
+                )
+                fig3.update_layout(height=250, margin=dict(l=0, r=0, t=0, b=0))
+                st.plotly_chart(fig3, use_container_width=True)
 
     with tab2:
-        st.subheader("Toutes les activités")
-        counts = df[df["sport_type"] == "running"]["sport_type"].value_counts().reset_index()
-        counts.columns = ["Type", "Séances"]
-        counts["Type"] = counts["Type"].str.replace("SportType.", "")
-        fig3 = px.pie(counts, values="Séances", names="Type", hole=0.4)
-        fig3.update_layout(height=300, margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig3, use_container_width=True)
-
-        st.dataframe(
-            df[["date", "sport_type", "distance_km", "duration_min", "avg_hr", "calories"]]
-            .tail(20)
+        st.subheader("Toutes mes courses")
+        display = (
+            runs[["date", "distance_km", "duration_min", "avg_pace_min_km", "avg_hr", "calories"]]
+            .copy()
             .sort_values("date", ascending=False)
-            .assign(date=lambda x: x["date"].dt.strftime("%d/%m/%Y"))
-            .rename(
-                columns={
-                    "date": "Date",
-                    "sport_type": "Type",
-                    "distance_km": "km",
-                    "duration_min": "min",
-                    "avg_hr": "FC",
-                    "calories": "Cal",
-                }
-            ),
-            use_container_width=True,
-            hide_index=True,
         )
+        display["date"] = display["date"].dt.strftime("%d/%m/%Y %H:%M")
+        display.columns = [
+            "Date",
+            "Distance (km)",
+            "Durée (min)",
+            "Allure (min/km)",
+            "FC moy.",
+            "Calories",
+        ]
+        st.dataframe(display, use_container_width=True, hide_index=True)
 
     with tab3:
-        st.subheader("Résumé hebdomadaire — courses")
+        st.subheader("Résumé hebdomadaire")
         if not runs.empty:
             weekly = parser.weekly_summary(runs)
             weekly["week"] = weekly["week"].astype(str)
@@ -209,7 +193,10 @@ elif page == "🏃 Sport":
             fig4.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0))
             st.plotly_chart(fig4, use_container_width=True)
 
+            st.dataframe(weekly, use_container_width=True, hide_index=True)
 
+
+# ── Offres d'emploi ───────────────────────────────────────────────────────────
 elif page == "🔍 Offres d'emploi":
     st.title("🔍 Offres d'emploi")
     st.info(
@@ -217,6 +204,8 @@ elif page == "🔍 Offres d'emploi":
         "En attendant, importe des offres via le CLI."
     )
 
+
+# ── Coach ─────────────────────────────────────────────────────────────────────
 elif page == "🎯 Coach":
     st.title("🎯 Coach quotidien")
     st.info(
@@ -233,6 +222,8 @@ elif page == "🎯 Coach":
     - [ ] Module Coach (Claude API)
     """)
 
+
+# ── ML Pipeline ───────────────────────────────────────────────────────────────
 elif page == "⚙️ ML Pipeline":
     st.title("⚙️ ML Pipeline")
     st.info(
