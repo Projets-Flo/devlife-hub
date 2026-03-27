@@ -211,11 +211,12 @@ class SamsungHealthParser:
         df = df.copy()
         df["week"] = df["date"].dt.to_period("W")
         return (
-            df.groupby(["week", "sport_type"])
+            df.groupby(["week"])
             .agg(
                 sessions=("date", "count"),
                 total_km=("distance_km", "sum"),
                 total_min=("duration_min", "sum"),
+                avg_pace=("avg_pace_min_km", "mean"),
                 avg_hr=("avg_hr", "mean"),
             )
             .round(1)

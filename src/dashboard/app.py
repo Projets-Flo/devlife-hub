@@ -92,7 +92,7 @@ elif page == "🏃 Sport":
         st.warning("Aucune donnée.")
         st.stop()
 
-    tab1, tab2, tab3 = st.tabs(["📊 Courses", "📋 Détail", "📅 Semaines"])
+    tab1, tab2, tab3 = st.tabs(["📊 Courses", "📋 Détail", "📅 Période"])
 
     with tab1:
         st.subheader("Mes courses")
@@ -182,25 +182,60 @@ elif page == "🏃 Sport":
             "Durée (min)",
             "Allure (min/km)",
             "FC moy.",
-            "Calories",
+            "Calories brûlées",
         ]
         st.dataframe(display, use_container_width=True, hide_index=True)
 
     with tab3:
-        st.subheader("Résumé hebdomadaire")
-        if not runs.empty:
-            weekly = parser.weekly_summary(runs)
-            weekly["week"] = weekly["week"].astype(str)
-            fig4 = px.bar(
-                weekly,
-                x="week",
-                y="total_km",
-                labels={"week": "Semaine", "total_km": "km totaux"},
-            )
-            fig4.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0))
-            st.plotly_chart(fig4, use_container_width=True)
+        st.subheader("Résumé par période")
 
-            st.dataframe(weekly, use_container_width=True, hide_index=True)
+        decoupage = st.radio(
+            "Découpage",
+            ["Semaine", "Mois", "Année"],
+            horizontal=True,
+        )
+
+        periode_map = {"Semaine": "W", "Mois": "M", "Année": "Y"}
+        runs_copy = runs.copy()
+        runs_copy["periode"] = runs_copy["date"].dt.to_period(periode_map[decoupage]).astype(str)
+
+        summary = (
+            runs_copy.groupby("periode")
+            .agg(
+                sessions=("date", "count"),
+                total_km=("distance_km", "sum"),
+                total_min=("duration_min", "sum"),
+                avg_hr=("avg_hr", "mean"),
+                avg_pace=("avg_pace_min_km", "mean"),
+            )
+            .round(1)
+            .reset_index()
+            .sort_values("periode", ascending=False)
+        )
+
+        fig = px.bar(
+            summary.sort_values("periode"),
+            x="periode",
+            y="total_km",
+            labels={"periode": "", "total_km": "km"},
+        )
+        fig.update_layout(height=280, margin=dict(l=0, r=0, t=0, b=0))
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.dataframe(
+            summary.rename(
+                columns={
+                    "periode": "Période",
+                    "sessions": "Séances",
+                    "total_km": "Km totaux",
+                    "total_min": "Durée (min)",
+                    "avg_hr": "FC moy. (bpm)",
+                    "avg_pace": "Allure moy. (min/km)",
+                }
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
 
 
 # ── Offres d'emploi ───────────────────────────────────────────────────────────
