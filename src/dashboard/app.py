@@ -46,7 +46,7 @@ if page == "🏠 Accueil":
     st.caption("Voici ton résumé")
 
     df, parser = load_sport_data()
-    runs = df[df["sport_type"] == "SportType.RUNNING"] if not df.empty else pd.DataFrame()
+    runs = df[df["sport_type"] == "running"] if not df.empty else pd.DataFrame()
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -82,7 +82,7 @@ elif page == "🏃 Sport":
 
     tab1, tab2, tab3 = st.tabs(["📊 Courses", "💪 Toutes séances", "📅 Semaines"])
 
-    runs = df[df["sport_type"] == "SportType.RUNNING"].copy()
+    runs = df[df["sport_type"] == "running"].copy()
 
     with tab1:
         st.subheader("Mes courses")
