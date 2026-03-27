@@ -98,6 +98,12 @@ elif page == "🏃 Sport":
             c3.metric("Plus longue sortie", f"{stats.get('best_km', 0)} km")
             c4.metric("Allure moyenne", f"{stats.get('avg_pace', 0)} min/km")
 
+            c5, c6, c7, c8 = st.columns(4)
+            c5.metric("FC moyenne", f"{stats.get('avg_hr', 0):.0f} bpm")
+            c6.metric("Meilleure allure", f"{stats.get('best_pace', 0)} min/km")
+            c7.metric("Calories totales", f"{stats.get('total_calories', 0):,}")
+            c8.metric("Sortie moyenne", f"{stats.get('avg_km', 0)} km")
+
             st.divider()
 
             # Filtre période
@@ -163,7 +169,7 @@ elif page == "🏃 Sport":
 
     with tab2:
         st.subheader("Toutes les activités")
-        counts = df["sport_type"].value_counts().reset_index()
+        counts = df[df["sport_type"] == "running"]["sport_type"].value_counts().reset_index()
         counts.columns = ["Type", "Séances"]
         counts["Type"] = counts["Type"].str.replace("SportType.", "")
         fig3 = px.pie(counts, values="Séances", names="Type", hole=0.4)
