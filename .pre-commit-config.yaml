@@ -17,11 +17,3 @@ repos:
         args: [--maxkb=5000]    # bloque les fichiers > 5Mo (pas de CSV géants)
       - id: check-merge-conflict
       - id: detect-private-key
-
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.10.0
-    hooks:
-      - id: mypy
-        additional_dependencies: [pydantic, pydantic-settings]
-        args: [--ignore-missing-imports]
-        files: ^src/

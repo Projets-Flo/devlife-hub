@@ -1,24 +1,18 @@
 """
-Parser Samsung Health — importe tes données de course et d'activité.
+Parser Samsung Health — format réel de l'export (vérifié sur mes données).
 
-Samsung Health exporte un ZIP contenant plusieurs CSV/JSON selon le type de donnée.
-Dézippe l'export dans : data/exports/samsung_health/
-
-Fichiers clés dans le ZIP :
-  - com.samsung.shealth.exercise.*.csv           → séances (running, musculation…)
-  - com.samsung.shealth.tracker.heart_rate.*.csv → fréquence cardiaque
-  - com.samsung.shealth.sleep.stage.*.csv        → sommeil
-  - com.samsung.shealth.step_daily_trend.*.csv   → pas quotidiens
+Structure de l'export :
+  samsunghealth/
+  ├── com.samsung.shealth.exercise.YYYYMMDDHHMMSS.csv  ← résumé de toutes les séances
+  └── jsons/com.samsung.shealth.exercise/              ← données détaillées (FC/s, GPS)
 
 Usage :
     from src.sport.parsers.samsung_health import SamsungHealthParser
-    parser = SamsungHealthParser("data/exports/samsung_health")
+    parser = SamsungHealthParser()
     sessions = parser.parse_workouts()
     df = parser.to_dataframe(sessions)
 """
 
-import zipfile
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -27,15 +21,41 @@ from loguru import logger
 from src.common.config import settings
 from src.common.database import SportType, WorkoutSession
 
-# Mapping des types d'activité Samsung → enum interne
 ACTIVITY_MAP: dict[int, str] = {
-    1001: SportType.RUNNING,
-    1002: SportType.WALKING,
+    1001: SportType.WALKING,
+    1002: SportType.RUNNING,
     3001: SportType.CYCLING,
     10001: SportType.STRENGTH,
-    # Compléter avec les codes de ta montre si besoin
-    # Samsung health activity type codes : https://developer.samsung.com/health/android/data/api-reference/constant-values.html
+    11007: SportType.RUNNING,
+    13001: SportType.OTHER,
+    14001: SportType.OTHER,
 }
+
+COL = {
+    "uuid": "com.samsung.health.exercise.datauuid",
+    "start": "com.samsung.health.exercise.start_time",
+    "end": "com.samsung.health.exercise.end_time",
+    "duration": "com.samsung.health.exercise.duration",
+    "type": "com.samsung.health.exercise.exercise_type",
+    "distance": "com.samsung.health.exercise.distance",
+    "calorie": "com.samsung.health.exercise.calorie",
+    "hr_mean": "com.samsung.health.exercise.mean_heart_rate",
+    "hr_max": "com.samsung.health.exercise.max_heart_rate",
+    "hr_min": "com.samsung.health.exercise.min_heart_rate",
+    "speed_mean": "com.samsung.health.exercise.mean_speed",
+    "speed_max": "com.samsung.health.exercise.max_speed",
+    "alt_gain": "com.samsung.health.exercise.altitude_gain",
+    "alt_loss": "com.samsung.health.exercise.altitude_loss",
+}
+
+EXCLUDE_KEYWORDS = [
+    "hr_zone",
+    "max_heart_rate",
+    "weather",
+    "extension",
+    "recovery",
+    "periodization",
+]
 
 
 class SamsungHealthParser:
@@ -43,129 +63,106 @@ class SamsungHealthParser:
 
     def __init__(self, export_dir: Path | str | None = None):
         self.export_dir = Path(export_dir or settings.samsung_health_export_dir)
+        self.data_dir = self._find_data_dir()
 
-    # ── Entrée principale ─────────────────────────────────────────────────────
+    def _find_data_dir(self) -> Path:
+        if list(self.export_dir.glob("com.samsung.shealth.exercise.*.csv")):
+            return self.export_dir
+        sub = self.export_dir / "samsunghealth"
+        if sub.exists():
+            return sub
+        return self.export_dir
 
     def parse_workouts(self) -> list[WorkoutSession]:
-        """
-        Cherche tous les fichiers exercise dans export_dir et les convertit.
-        Accepte aussi les ZIP directement.
-        """
-        sessions: list[WorkoutSession] = []
-        csv_files = list(self.export_dir.glob("com.samsung.shealth.exercise.*.csv"))
+        csv_files = sorted(self.data_dir.glob("com.samsung.shealth.exercise.*.csv"))
+        csv_files = [f for f in csv_files if not any(kw in f.name for kw in EXCLUDE_KEYWORDS)]
 
         if not csv_files:
-            logger.warning(
-                f"Aucun fichier exercise trouvé dans {self.export_dir}. "
-                "Dézippe ton export Samsung Health dans ce dossier."
-            )
-            return sessions
+            logger.warning(f"Aucun fichier exercise trouvé dans {self.data_dir}.")
+            return []
 
+        all_sessions: list[WorkoutSession] = []
         for f in csv_files:
             logger.info(f"Parsing : {f.name}")
-            sessions.extend(self._parse_exercise_csv(f))
+            all_sessions.extend(self._parse_csv(f))
 
-        logger.success(f"{len(sessions)} séances importées depuis Samsung Health")
-        return sessions
+        logger.success(f"{len(all_sessions)} séances importées depuis Samsung Health")
+        return all_sessions
 
-    def extract_zip(self, zip_path: Path) -> None:
-        """Extrait un export ZIP Samsung Health dans export_dir."""
-        self.export_dir.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(zip_path, "r") as z:
-            z.extractall(self.export_dir)
-        logger.success(f"ZIP extrait dans {self.export_dir}")
-
-    # ── Parsing interne ───────────────────────────────────────────────────────
-
-    def _parse_exercise_csv(self, csv_path: Path) -> list[WorkoutSession]:
-        """
-        Parse un fichier com.samsung.shealth.exercise.*.csv
-        Les premières lignes peuvent contenir des métadonnées Samsung — on les saute.
-        """
-        sessions: list[WorkoutSession] = []
-
-        # Samsung Health met parfois un header propriétaire sur les 2 premières lignes
+    def _parse_csv(self, csv_path: Path) -> list[WorkoutSession]:
         try:
-            df = pd.read_csv(csv_path, comment="#", low_memory=False)
-        except Exception:
-            df = pd.read_csv(csv_path, skiprows=2, low_memory=False)
+            df = pd.read_csv(
+                csv_path, skiprows=1, low_memory=False, on_bad_lines="skip", index_col=False
+            )
+        except Exception as e:
+            logger.error(f"Impossible de lire {csv_path.name} : {e}")
+            return []
 
-        logger.debug(f"Colonnes disponibles : {list(df.columns)}")
-
+        sessions = []
         for _, row in df.iterrows():
-            session = self._row_to_session(row)
-            if session:
-                sessions.append(session)
-
+            s = self._row_to_session(row)
+            if s:
+                sessions.append(s)
         return sessions
 
     def _row_to_session(self, row: pd.Series) -> WorkoutSession | None:
-        """Convertit une ligne CSV en WorkoutSession."""
         try:
-            # Colonnes Samsung Health (peuvent varier selon la version de l'appli)
-            activity_type = int(
-                row.get("exercise_type", row.get("com.samsung.health.exercise.exercise_type", 0))
-            )
-            sport_type = ACTIVITY_MAP.get(activity_type, SportType.OTHER)
+            raw_type = row.get(COL["type"])
+            if pd.isna(raw_type):
+                return None
+            sport_type = ACTIVITY_MAP.get(int(float(raw_type)), SportType.OTHER)
 
-            # Timestamp (Samsung stocke en ms UTC)
-            raw_start = row.get("start_time", row.get("com.samsung.health.exercise.start_time"))
+            raw_start = row.get(COL["start"])
             if pd.isna(raw_start):
                 return None
-            if isinstance(raw_start, int | float):
-                start_dt = datetime.fromtimestamp(raw_start / 1000, tz=UTC)
-            else:
-                start_dt = pd.to_datetime(raw_start, utc=True).to_pydatetime()
+            start_dt = pd.to_datetime(raw_start, utc=False).to_pydatetime()
 
-            # Durée
-            duration_ms = row.get("duration", row.get("com.samsung.health.exercise.duration", None))
-            duration_min = float(duration_ms) / 60000 if pd.notna(duration_ms) else None
+            raw_dur = row.get(COL["duration"])
+            duration_min = round(float(raw_dur) / 60000, 1) if pd.notna(raw_dur) else None
 
-            # Distance
-            distance_m = row.get("distance", row.get("com.samsung.health.exercise.distance", None))
-            distance_km = float(distance_m) / 1000 if pd.notna(distance_m) else None
+            raw_dist = row.get(COL["distance"])
+            distance_km = round(float(raw_dist) / 1000, 3) if pd.notna(raw_dist) else None
 
-            # Calories
-            calories = row.get("calorie", row.get("com.samsung.health.exercise.calorie", None))
-            calories = int(float(calories)) if pd.notna(calories) else None
+            raw_cal = row.get(COL["calorie"])
+            calories = int(float(raw_cal)) if pd.notna(raw_cal) else None
 
-            # Fréquence cardiaque
-            hr_mean = row.get(
-                "mean_heart_rate", row.get("com.samsung.health.exercise.mean_heart_rate", None)
-            )
-            hr_max = row.get(
-                "max_heart_rate", row.get("com.samsung.health.exercise.max_heart_rate", None)
-            )
+            raw_hr = row.get(COL["hr_mean"])
+            hr_mean = int(float(raw_hr)) if pd.notna(raw_hr) else None
 
-            # Allure moyenne (running)
+            raw_hrmax = row.get(COL["hr_max"])
+            hr_max = int(float(raw_hrmax)) if pd.notna(raw_hrmax) else None
+
             avg_pace = None
-            if distance_km and duration_min and distance_km > 0:
-                avg_pace = duration_min / distance_km
+            raw_speed = row.get(COL["speed_mean"])
+            if pd.notna(raw_speed) and float(raw_speed) > 0:
+                avg_pace = round(1000 / (float(raw_speed) * 60), 2)
+
+            raw_gain = row.get(COL["alt_gain"])
+            elevation = round(float(raw_gain), 1) if pd.notna(raw_gain) else None
+
+            raw_uuid = row.get(COL["uuid"])
+            external_id = str(raw_uuid) if pd.notna(raw_uuid) else None
 
             return WorkoutSession(
-                external_id=str(row.get("datauuid", f"samsung_{raw_start}")),
+                external_id=external_id,
                 sport_type=sport_type,
                 date=start_dt,
                 duration_minutes=duration_min,
                 distance_km=distance_km,
                 calories=calories,
-                avg_heart_rate=int(float(hr_mean)) if pd.notna(hr_mean) else None,
-                max_heart_rate=int(float(hr_max)) if pd.notna(hr_max) else None,
+                avg_heart_rate=hr_mean,
+                max_heart_rate=hr_max,
                 avg_pace_min_km=avg_pace,
+                elevation_gain_m=elevation,
                 source="samsung",
             )
-
         except Exception as e:
-            logger.warning(f"Ligne ignorée : {e}")
+            logger.warning(f"Ligne ignorée ({e})")
             return None
 
-    # ── Utilitaires DataFrame ─────────────────────────────────────────────────
-
     def to_dataframe(self, sessions: list[WorkoutSession]) -> pd.DataFrame:
-        """Convertit une liste de WorkoutSession en DataFrame pour l'analyse."""
         if not sessions:
             return pd.DataFrame()
-
         rows = [
             {
                 "date": s.date,
@@ -182,11 +179,25 @@ class SamsungHealthParser:
         ]
         df = pd.DataFrame(rows)
         df["date"] = pd.to_datetime(df["date"])
-        df = df.sort_values("date").reset_index(drop=True)
-        return df
+        return df.sort_values("date").reset_index(drop=True)
+
+    def stats_running(self, df: pd.DataFrame) -> dict:
+        runs = df[df["sport_type"] == SportType.RUNNING].copy()
+        if runs.empty:
+            return {}
+        return {
+            "total_sessions": len(runs),
+            "total_km": round(runs["distance_km"].sum(), 1),
+            "avg_km": round(runs["distance_km"].mean(), 1),
+            "best_km": round(runs["distance_km"].max(), 1),
+            "avg_pace": round(runs["avg_pace_min_km"].mean(), 2),
+            "best_pace": round(runs["avg_pace_min_km"].min(), 2),
+            "avg_hr": round(runs["avg_hr"].mean(), 0),
+            "total_calories": int(runs["calories"].sum()),
+        }
 
     def weekly_summary(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Résumé hebdomadaire des séances pour le dashboard."""
+        df = df.copy()
         df["week"] = df["date"].dt.to_period("W")
         return (
             df.groupby(["week", "sport_type"])
