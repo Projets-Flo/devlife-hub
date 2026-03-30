@@ -241,10 +241,63 @@ elif page == "🏃 Sport":
 # ── Offres d'emploi ───────────────────────────────────────────────────────────
 elif page == "🔍 Offres d'emploi":
     st.title("🔍 Offres d'emploi")
-    st.info(
-        "📡 Le scraping automatique sera activé en Phase 2. "
-        "En attendant, importe des offres via le CLI."
-    )
+
+    from sqlalchemy.orm import Session
+
+    from src.common.database import JobOffer, engine
+
+    # ── Filtres ───────────────────────────────────────────────
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        search = st.text_input("Rechercher", placeholder="data scientist, python...")
+    with col2:
+        location = st.text_input("Ville / région", placeholder="Paris, Lyon, Remote...")
+    with col3:
+        contract = st.selectbox("Contrat", ["Tous", "CDI", "CDD", "Stage", "Alternance"])
+
+    col4, col5 = st.columns(2)
+    with col4:
+        remote_only = st.checkbox("Remote uniquement")
+    with col5:
+        sort_by = st.selectbox("Trier par", ["Date (récent)", "Score matching"])
+
+    # ── Requête ───────────────────────────────────────────────
+    with Session(engine) as session:
+        query = session.query(JobOffer)
+
+        if search:
+            query = query.filter(
+                JobOffer.title.ilike(f"%{search}%") | JobOffer.description.ilike(f"%{search}%")
+            )
+        if location:
+            query = query.filter(JobOffer.location.ilike(f"%{location}%"))
+        if contract != "Tous":
+            query = query.filter(JobOffer.contract_type.ilike(f"%{contract}%"))
+        if remote_only:
+            query = query.filter(JobOffer.remote.is_(True))
+
+        query = query.order_by(JobOffer.scraped_at.desc())
+        offers = query.all()
+
+    # ── Affichage ─────────────────────────────────────────────
+    st.caption(f"{len(offers)} offres trouvées")
+
+    for o in offers[:50]:
+        with st.expander(f"**{o.title}** — {o.company} · {o.location}"):
+            col_a, col_b = st.columns([3, 1])
+            with col_a:
+                st.write(
+                    o.description[:500] + "..."
+                    if o.description and len(o.description) > 500
+                    else o.description
+                )
+            with col_b:
+                st.write(f"**Contrat** : {o.contract_type or '—'}")
+                if o.salary_min:
+                    st.write(f"**Salaire** : {o.salary_min:,.0f}€")
+                st.write(f"**Remote** : {'✅' if o.remote else '❌'}")
+                if o.url:
+                    st.link_button("Voir l'offre", o.url)
 
 
 # ── Coach ─────────────────────────────────────────────────────────────────────

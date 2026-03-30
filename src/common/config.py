@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     # ── Prefect ───────────────────────────────────────────
     prefect_api_url: str = "http://localhost:4200/api"
 
+    # France Travail (emploi) API
+    france_travail_client_id: str = ""
+    france_travail_client_secret: str = ""
+
     @property
     def is_production(self) -> bool:
         return self.app_env == "production"
