@@ -1,343 +1,255 @@
 """
-Page Offres d'emploi — dashboard enrichi avec filtres avancés et analyse LLM.
+Analyseur LLM local via Ollama — analyse approfondie des offres d'emploi.
+Utilise Mistral 7B en local, 100% gratuit et offline.
+
+Prérequis :
+    1. Installer Ollama : https://ollama.com
+    2. ollama pull mistral
+    3. ollama serve (ou lancer Ollama Desktop)
+
+Usage :
+    from src.jobs.matching.llm_analyzer import JobAnalyzer
+    analyzer = JobAnalyzer()
+    result = analyzer.analyze(title="Data Scientist", description="...", location="Paris")
 """
 
-import pandas as pd
-import plotly.express as px
-import streamlit as st
-from sqlalchemy.orm import Session
+import json
+import re
+import time
 
-from src.common.database import JobOffer, engine
+import httpx
+from loguru import logger
+
+OLLAMA_URL = "http://localhost:11434/api/generate"
+DEFAULT_MODEL = "mistral"
+
+# Profil de Florian — injecté dans le prompt pour le matching personnalisé
+FLORIAN_PROFILE = """
+Profil candidat :
+- Diplôme : Ingénieur Polytech Lyon, Mathématiques Appliquées & Modélisation (2025)
+- Expérience 1 : Caisses Sociales de Monaco — Data Analyst/Scientist (6 mois)
+  Compétences : XGBoost, Random Forest, clustering séries temporelles, tests statistiques,
+  pandas, scikit-learn, SQL, détection fraudes, données médico-administratives
+- Expérience 2 : Babolat — Chargé de missions data et digitales (6 mois)
+  Compétences : Power BI, Tableau, Looker Studio, Google Analytics 4,
+  ContentSquare (expert), automatisation reportings, e-commerce
+- Compétences techniques : Python, R, SQL, SAS, C/C++, Matlab, Git,
+  pandas, scikit-learn, XGBoost, PyTorch, PySpark, TensorFlow,
+  Power BI, Tableau, Looker Studio, BO Web Intelligence
+- Compétences stats : régressions Lasso/Ridge, ARIMA, Monte-Carlo,
+  tests d'hypothèses, modèles bayésiens, K-means, SVM
+- Langues : Français (natif), Anglais (courant), Allemand (bon niveau)
+- Localisation : Saint-Julien-en-Genevois (proche Genève)
+- Disponibilité : immédiate
+"""
+
+ANALYSIS_PROMPT = """Tu es un expert en recrutement data science. Analyse cette offre d'emploi et retourne UNIQUEMENT un JSON valide, sans aucun texte avant ou après.
+
+OFFRE :
+Titre : {title}
+Localisation : {location}
+Entreprise : {company}
+Contrat : {contract_type}
+Description : {description}
+
+PROFIL CANDIDAT :
+{profile}
+
+Retourne exactement ce JSON (tous les champs obligatoires) :
+{{
+  "resume": "Résumé de l'offre en 2 phrases max",
+  "poste_type": "junior|confirmé|senior",
+  "culture_entreprise": "startup|scale-up|grand groupe|ESN/conseil|laboratoire/recherche|PME|inconnu",
+  "domaine_metier": "data science|machine learning|data engineering|data analyst|bi analytics|biostatistique|simulation|mlops|autre",
+  "experience_requise_ans": 0,
+  "competences_requises": {{
+    "indispensables": ["liste des compétences vraiment requises"],
+    "souhaitees": ["liste des compétences appréciées mais pas obligatoires"]
+  }},
+  "stack_principale": ["les 5 technos les plus importantes du poste"],
+  "salaire_estime": {{
+    "min": 0,
+    "max": 0,
+    "base": "extrait|estimé",
+    "note": "Explication courte de l'estimation"
+  }},
+  "remote": "full remote|hybride|présentiel|non précisé",
+  "score_adequation": 0,
+  "score_justification": "Pourquoi ce score (2-3 phrases)",
+  "points_forts_candidature": ["Ce qui joue en faveur du candidat pour ce poste"],
+  "competences_manquantes": ["Compétences du poste absentes du profil candidat"],
+  "conseil_candidature": "Un conseil personnalisé et concret pour postuler à ce poste"
+}}
+
+Pour le score_adequation (0-100) : base-toi sur la correspondance entre le profil candidat et les exigences du poste.
+Pour le salaire_estime : si non indiqué, estime en fonction du poste, niveau, localisation et marché FR/CH actuel.
+IMPORTANT : retourne UNIQUEMENT le JSON, rien d'autre."""
 
 
-def render():
-    st.title("🔍 Offres d'emploi")
+class JobAnalyzer:
+    """Analyse les offres d'emploi avec un LLM local via Ollama."""
+
+    def __init__(self, model: str = DEFAULT_MODEL, timeout: int = 120):
+        self.model = model
+        self.timeout = timeout
+        self._check_ollama()
+
+    def _check_ollama(self) -> bool:
+        """Vérifie qu'Ollama est disponible."""
+        try:
+            resp = httpx.get("http://localhost:11434/api/tags", timeout=5)
+            models = [m["name"] for m in resp.json().get("models", [])]
+            if not any(self.model in m for m in models):
+                logger.warning(
+                    f"Modèle '{self.model}' non trouvé. " f"Lance : ollama pull {self.model}"
+                )
+                return False
+            logger.info(f"Ollama OK — modèle {self.model} disponible")
+            return True
+        except Exception:
+            logger.warning("Ollama non disponible. Lance Ollama Desktop ou 'ollama serve'")
+            return False
+
+    def analyze(
+        self,
+        title: str,
+        description: str,
+        location: str = "",
+        company: str = "",
+        contract_type: str = "",
+    ) -> dict | None:
+        """
+        Analyse une offre d'emploi et retourne un dict structuré.
+        Retourne None si Ollama n'est pas disponible.
+        """
+        prompt = ANALYSIS_PROMPT.format(
+            title=title,
+            description=description[:3000],  # limite tokens
+            location=location,
+            company=company,
+            contract_type=contract_type,
+            profile=FLORIAN_PROFILE,
+        )
+
+        try:
+            response = httpx.post(
+                OLLAMA_URL,
+                json={
+                    "model": self.model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.1,  # déterministe pour JSON
+                        "num_predict": 1024,
+                    },
+                },
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            raw_text = response.json().get("response", "")
+            return self._parse_json(raw_text)
+
+        except httpx.TimeoutException:
+            logger.warning(f"Timeout pour '{title}' — offre ignorée")
+            return None
+        except Exception as e:
+            logger.error(f"Erreur analyse '{title}' : {e}")
+            return None
+
+    def _parse_json(self, text: str) -> dict | None:
+        """Extrait et parse le JSON depuis la réponse du LLM."""
+        # Cherche un bloc JSON dans la réponse
+        json_match = re.search(r"\{.*\}", text, re.DOTALL)
+        if not json_match:
+            logger.warning("Pas de JSON trouvé dans la réponse LLM")
+            return None
+        try:
+            return json.loads(json_match.group())
+        except json.JSONDecodeError as e:
+            logger.warning(f"JSON invalide : {e}")
+            # Tentative de nettoyage
+            cleaned = re.sub(r",\s*}", "}", json_match.group())
+            cleaned = re.sub(r",\s*]", "]", cleaned)
+            try:
+                return json.loads(cleaned)
+            except Exception:
+                return None
+
+
+def analyze_all_offers(batch_size: int = 10, max_offers: int = None) -> int:
+    """
+    Lance l'analyse LLM sur toutes les offres non encore analysées.
+    Sauvegarde les résultats dans le champ `tags` de chaque offre.
+
+    Args:
+        batch_size: Commit toutes les N offres (évite de tout perdre si crash)
+        max_offers: Limite le nombre d'offres à analyser (None = toutes)
+    """
+    from sqlalchemy.orm import Session
+
+    from src.common.database import JobOffer, engine
+
+    analyzer = JobAnalyzer()
+    analyzed = 0
+    errors = 0
 
     with Session(engine) as session:
-        all_offers = (
-            session.query(JobOffer)
-            .order_by(JobOffer.match_score.desc().nullslast(), JobOffer.scraped_at.desc())
-            .all()
-        )
-        session.expunge_all()
+        query = session.query(JobOffer)
+        if max_offers:
+            query = query.limit(max_offers)
+        offers = query.all()
 
-    if not all_offers:
-        st.warning("Aucune offre en base. Lance le collecteur d'abord.")
-        st.code("python -m src.jobs.scrapers.job_collector")
-        return
+        # Filtre celles déjà analysées
+        to_analyze = [o for o in offers if not (o.tags or {}).get("llm_analyzed")]
 
-    rows = []
-    for o in all_offers:
-        tags = o.tags or {}
-        llm = tags.get("llm_analysis", {})
-        rows.append(
-            {
-                "id": o.id,
-                "title": o.title or "",
-                "company": o.company or "",
-                "location": o.location or "",
-                "contract_type": o.contract_type or "",
-                "match_score": o.match_score or 0,
-                "remote": llm.get("remote", tags.get("remote_type", "non précisé")),
-                "poste_type": llm.get("poste_type", "—"),
-                "culture": llm.get("culture_entreprise", "—"),
-                "domaine": llm.get("domaine_metier", "—"),
-                "sal_min": llm.get("salaire_estime", {}).get("min") or o.salary_min or 0,
-                "sal_max": llm.get("salaire_estime", {}).get("max") or o.salary_max or 0,
-                "llm_analyzed": tags.get("llm_analyzed", False),
-                "stack": llm.get("stack_principale", []),
-            }
-        )
-    df = pd.DataFrame(rows)
+        logger.info(f"{len(to_analyze)} offres à analyser sur {len(offers)} total")
 
-    total = len(df)
-    analyzed = int(df["llm_analyzed"].sum())
+        for i, offer in enumerate(to_analyze, 1):
+            logger.info(f"[{i}/{len(to_analyze)}] {offer.title} — {offer.company}")
 
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Total offres", total)
-    c2.metric("Analysées par IA", f"{analyzed}/{total}")
-    top_match = df[df["match_score"] > 0]["match_score"].max() if not df.empty else 0
-    c3.metric("Meilleur match", f"{top_match:.0f}%" if top_match else "—")
-    remote_count = int(df[df["remote"].isin(["full remote", "hybride"])].shape[0])
-    c4.metric("Remote / Hybride", remote_count)
-    sal_mean = df[df["sal_min"] > 0]["sal_min"].mean()
-    c5.metric("Salaire moyen estimé", f"{sal_mean:,.0f}€" if sal_mean else "—")
-
-    st.divider()
-
-    with st.expander("🎛️ Filtres avancés", expanded=True):
-        r1 = st.columns([2, 2, 1, 1])
-        with r1[0]:
-            search = st.text_input("🔍 Recherche", placeholder="python, NLP, XGBoost...")
-        with r1[1]:
-            loc_filter = st.text_input("📍 Localisation", placeholder="Paris, Lyon...")
-        with r1[2]:
-            contract_filter = st.multiselect("📋 Contrat", ["CDI", "CDD", "Stage", "Alternance"])
-        with r1[3]:
-            remote_filter = st.multiselect(
-                "🏠 Remote", ["full remote", "hybride", "remote possible", "présentiel"]
+            result = analyzer.analyze(
+                title=offer.title or "",
+                description=offer.description or "",
+                location=offer.location or "",
+                company=offer.company or "",
+                contract_type=offer.contract_type or "",
             )
 
-        r2 = st.columns([1, 1, 1, 1])
-        with r2[0]:
-            score_min = st.slider("⭐ Score min", 0, 100, 0, step=5)
-        with r2[1]:
-            sal_min_filter = st.number_input("💰 Salaire min (€)", 0, step=5000)
-        with r2[2]:
-            niveau_filter = st.multiselect("👤 Niveau", ["junior", "confirmé", "senior"])
-        with r2[3]:
-            culture_filter = st.multiselect(
-                "🏢 Culture",
-                [
-                    "startup",
-                    "scale-up",
-                    "grand groupe",
-                    "ESN/conseil",
-                    "laboratoire/recherche",
-                    "PME",
-                ],
-            )
+            if result:
+                tags = offer.tags or {}
+                tags["llm_analysis"] = result
+                tags["llm_analyzed"] = True
+                tags["llm_model"] = analyzer.model
+                offer.tags = tags
 
-        r3 = st.columns([2, 1])
-        with r3[0]:
-            skill_filter = st.text_input("🔧 Compétence", placeholder="python, docker...")
-        with r3[1]:
-            llm_only = st.checkbox("Analysées par IA uniquement")
+                # Met à jour le score de matching directement sur l'objet
+                score = result.get("score_adequation")
+                if score is not None:
+                    offer.match_score = float(score)
 
-    # Application filtres
-    filtered_ids = set(df["id"].tolist())
+                analyzed += 1
+            else:
+                errors += 1
 
-    if search:
-        terms = search.lower().split()
-        mask = pd.Series([True] * len(df), index=df.index)
-        for t in terms:
-            mask &= df["title"].str.lower().str.contains(t, na=False) | df[
-                "company"
-            ].str.lower().str.contains(t, na=False)
-        filtered_ids &= set(df[mask]["id"].tolist())
+            # Commit par batch
+            if i % batch_size == 0:
+                session.commit()
+                logger.info(f"Checkpoint : {analyzed} analysées, {errors} erreurs")
 
-    if loc_filter:
-        mask = df["location"].str.lower().str.contains(loc_filter.lower(), na=False)
-        filtered_ids &= set(df[mask]["id"].tolist())
+            time.sleep(0.1)  # respiration
 
-    if contract_filter:
-        mask = df["contract_type"].str.contains("|".join(contract_filter), case=False, na=False)
-        filtered_ids &= set(df[mask]["id"].tolist())
+        session.commit()
 
-    if remote_filter:
-        filtered_ids &= set(df[df["remote"].isin(remote_filter)]["id"].tolist())
-
-    if score_min > 0:
-        filtered_ids &= set(df[df["match_score"] >= score_min]["id"].tolist())
-
-    if sal_min_filter > 0:
-        filtered_ids &= set(df[df["sal_min"] >= sal_min_filter]["id"].tolist())
-
-    if niveau_filter:
-        filtered_ids &= set(df[df["poste_type"].isin(niveau_filter)]["id"].tolist())
-
-    if culture_filter:
-        filtered_ids &= set(df[df["culture"].isin(culture_filter)]["id"].tolist())
-
-    if llm_only:
-        filtered_ids &= set(df[df["llm_analyzed"]]["id"].tolist())
-
-    if skill_filter:
-        s = skill_filter.lower()
-        mask = df["stack"].apply(lambda x: any(s in t.lower() for t in x) if x else False)
-        filtered_ids &= set(df[mask]["id"].tolist())
-
-    filtered_offers = [o for o in all_offers if o.id in filtered_ids]
-    filtered_df = df[df["id"].isin(filtered_ids)]
-
-    st.caption(f"**{len(filtered_offers)}** offres · {analyzed} analysées par IA")
-
-    tab1, tab2, tab3 = st.tabs(["📋 Liste", "📊 Statistiques", "🗺️ Marché"])
-
-    with tab1:
-        sort_by = st.selectbox(
-            "Trier par",
-            ["Score matching ↓", "Salaire estimé ↓", "Date ↓"],
-            label_visibility="collapsed",
-        )
-        if sort_by == "Score matching ↓":
-            filtered_offers = sorted(
-                filtered_offers, key=lambda o: o.match_score or 0, reverse=True
-            )
-        elif sort_by == "Salaire estimé ↓":
-            filtered_offers = sorted(
-                filtered_offers,
-                key=lambda o: (o.tags or {})
-                .get("llm_analysis", {})
-                .get("salaire_estime", {})
-                .get("min")
-                or o.salary_min
-                or 0,
-                reverse=True,
-            )
-
-        for o in filtered_offers[:60]:
-            _render_card(o)
-
-    with tab2:
-        if filtered_df.empty:
-            st.info("Aucune donnée.")
-        else:
-            ca, cb = st.columns(2)
-            with ca:
-                st.subheader("Scores de matching")
-                scores = filtered_df[filtered_df["match_score"] > 0]["match_score"]
-                if not scores.empty:
-                    fig = px.histogram(scores, nbins=20, color_discrete_sequence=["#1D9E75"])
-                    fig.update_layout(height=260, margin=dict(l=0, r=0, t=0, b=0))
-                    st.plotly_chart(fig, use_container_width=True)
-            with cb:
-                st.subheader("Niveau requis")
-                niv = filtered_df["poste_type"].value_counts()
-                if not niv.empty:
-                    fig2 = px.pie(values=niv.values, names=niv.index, hole=0.4)
-                    fig2.update_layout(height=260, margin=dict(l=0, r=0, t=20, b=0))
-                    st.plotly_chart(fig2, use_container_width=True)
-
-            cc, cd = st.columns(2)
-            with cc:
-                st.subheader("Culture entreprise")
-                cult = filtered_df[filtered_df["culture"] != "—"]["culture"].value_counts().head(8)
-                if not cult.empty:
-                    fig3 = px.bar(
-                        x=cult.values,
-                        y=cult.index,
-                        orientation="h",
-                        color_discrete_sequence=["#7F77DD"],
-                    )
-                    fig3.update_layout(height=280, margin=dict(l=0, r=0, t=0, b=0))
-                    st.plotly_chart(fig3, use_container_width=True)
-            with cd:
-                st.subheader("Remote")
-                rem = filtered_df[filtered_df["remote"] != "non précisé"]["remote"].value_counts()
-                if not rem.empty:
-                    fig4 = px.pie(values=rem.values, names=rem.index, hole=0.4)
-                    fig4.update_layout(height=280, margin=dict(l=0, r=0, t=20, b=0))
-                    st.plotly_chart(fig4, use_container_width=True)
-
-    with tab3:
-        st.subheader("Compétences les plus demandées")
-        from collections import Counter
-
-        all_stack = []
-        for _, row in filtered_df.iterrows():
-            all_stack.extend(row["stack"])
-        if all_stack:
-            counts = Counter(all_stack).most_common(20)
-            sk_df = pd.DataFrame(counts, columns=["Compétence", "Occurrences"])
-            fig5 = px.bar(
-                sk_df.sort_values("Occurrences"),
-                x="Occurrences",
-                y="Compétence",
-                orientation="h",
-                color="Occurrences",
-                color_continuous_scale="Teal",
-            )
-            fig5.update_layout(height=520, margin=dict(l=0, r=0, t=0, b=0))
-            st.plotly_chart(fig5, use_container_width=True)
-        else:
-            st.info(
-                "Lance l'analyse LLM pour voir les compétences : `python -m src.jobs.matching.llm_analyzer`"
-            )
-
-        sal_df = filtered_df[(filtered_df["sal_min"] > 20000) & (filtered_df["domaine"] != "—")]
-        if not sal_df.empty:
-            st.subheader("Salaires par domaine")
-            fig6 = px.box(
-                sal_df,
-                x="domaine",
-                y="sal_min",
-                labels={"domaine": "", "sal_min": "Salaire min estimé (€)"},
-                color="domaine",
-            )
-            fig6.update_layout(height=350, margin=dict(l=0, r=0, t=0, b=0), showlegend=False)
-            st.plotly_chart(fig6, use_container_width=True)
+    logger.success(f"Analyse terminée : {analyzed} offres analysées, {errors} erreurs")
+    return analyzed
 
 
-def _render_card(offer):
-    tags = offer.tags or {}
-    llm = tags.get("llm_analysis", {})
-    score = offer.match_score or 0
-    sal = llm.get("salaire_estime", {})
-    stack = llm.get("stack_principale", [])
-    poste_type = llm.get("poste_type", "—")
-    culture = llm.get("culture_entreprise", "—")
-    remote = llm.get("remote", tags.get("remote_type", "—"))
+if __name__ == "__main__":
+    import argparse
 
-    score_badge = (
-        f"🟢 {score:.0f}%"
-        if score >= 70
-        else f"🟡 {score:.0f}%"
-        if score >= 50
-        else f"🔴 {score:.0f}%"
-        if score > 0
-        else "⚪"
-    )
-    niveau_icon = {"junior": "🌱", "confirmé": "⚡", "senior": "🏆"}.get(poste_type, "❓")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--max", type=int, default=None, help="Nombre max d'offres")
+    parser.add_argument("--model", type=str, default="mistral", help="Modèle Ollama")
+    args = parser.parse_args()
 
-    sal_str = "—"
-    if sal.get("min") and sal.get("max"):
-        sal_str = f"~{sal['min']:,.0f}€–{sal['max']:,.0f}€"
-    elif sal.get("min"):
-        sal_str = f"~{sal['min']:,.0f}€+"
-
-    header = (
-        f"{score_badge} {niveau_icon} **{offer.title}** — "
-        f"{offer.company} · 📍{offer.location} · 💰{sal_str}"
-    )
-
-    with st.expander(header):
-        col_main, col_side = st.columns([3, 1])
-
-        with col_side:
-            st.markdown("**Fiche**")
-            st.write(f"📋 {offer.contract_type or '—'}")
-            st.write(f"👤 {poste_type}")
-            st.write(f"🏢 {culture}")
-            st.write(f"🏠 {remote}")
-            if sal.get("note"):
-                st.caption(f"💡 {sal['note']}")
-            if offer.url:
-                st.link_button("Voir l'offre ↗", offer.url)
-
-        with col_main:
-            resume = llm.get("resume")
-            if resume:
-                st.info(f"**Résumé :** {resume}")
-
-            if stack:
-                st.markdown("**Stack :** " + "  ".join(f"`{s}`" for s in stack))
-
-            if score > 0:
-                justif = llm.get("score_justification", "")
-                col = "green" if score >= 70 else "orange" if score >= 50 else "red"
-                st.markdown(
-                    f"**Adéquation :** :{col}[{score:.0f}%]" + (f" — {justif}" if justif else "")
-                )
-
-            pf = llm.get("points_forts_candidature", [])
-            pm = llm.get("competences_manquantes", [])
-            if pf or pm:
-                c1, c2 = st.columns(2)
-                with c1:
-                    if pf:
-                        st.markdown("**✅ Points forts**")
-                        for p in pf[:3]:
-                            st.markdown(f"- {p}")
-                with c2:
-                    if pm:
-                        st.markdown("**⚠️ À développer**")
-                        for m in pm[:3]:
-                            st.markdown(f"- {m}")
-
-            conseil = llm.get("conseil_candidature")
-            if conseil:
-                st.success(f"💡 **Conseil :** {conseil}")
-
-            with st.expander("Description complète"):
-                st.write(offer.description or "—")
+    analyze_all_offers(max_offers=args.max)
