@@ -216,10 +216,13 @@ def analyze_all_offers(batch_size: int = 10, max_offers: int = None) -> int:
             )
 
             if result:
-                tags = offer.tags or {}
+                import copy
+
+                tags = copy.deepcopy(offer.tags or {})
                 tags["llm_analysis"] = result
                 tags["llm_analyzed"] = True
                 tags["llm_model"] = analyzer.model
+                offer.tags = None  # force SQLAlchemy à détecter le changement
                 offer.tags = tags
 
                 # Met à jour le score de matching directement sur l'objet
