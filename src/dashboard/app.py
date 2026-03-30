@@ -283,21 +283,65 @@ elif page == "🔍 Offres d'emploi":
     st.caption(f"{len(offers)} offres trouvées")
 
     for o in offers[:50]:
-        with st.expander(f"**{o.title}** — {o.company} · {o.location}"):
-            col_a, col_b = st.columns([3, 1])
-            with col_a:
-                st.write(
-                    o.description[:500] + "..."
-                    if o.description and len(o.description) > 500
-                    else o.description
-                )
+        tags = o.tags or {}
+        skills = tags.get("skills", {})
+        exp_level = tags.get("experience_level", "non précisé")
+        remote_type = tags.get("remote_type", "")
+        salary_range = tags.get("salary_range")
+
+        # Titre avec badges
+        badge_exp = {"junior": "🟢", "confirmé": "🟡", "senior": "🔴"}.get(exp_level, "⚪")
+        badge_remote = {"full remote": "🏠", "hybride": "🔀", "remote possible": "💻"}.get(
+            remote_type, "🏢"
+        )
+
+        header = f"{badge_exp} {badge_remote} **{o.title}** — {o.company} · {o.location}"
+
+        with st.expander(header):
+            col_a, col_b = st.columns([2, 1])
+
             with col_b:
-                st.write(f"**Contrat** : {o.contract_type or '—'}")
-                if o.salary_min:
-                    st.write(f"**Salaire** : {o.salary_min:,.0f}€")
-                st.write(f"**Remote** : {'✅' if o.remote else '❌'}")
+                st.markdown("**Infos clés**")
+                st.write(f"📋 Contrat : {o.contract_type or '—'}")
+                st.write(f"👤 Expérience : {exp_level}")
+                st.write(f"🏠 Remote : {remote_type or '—'}")
+
+                if salary_range:
+                    sal_min = salary_range.get("min")
+                    sal_max = salary_range.get("max")
+                    if sal_min and sal_max:
+                        st.write(f"💰 {sal_min:,.0f}€ — {sal_max:,.0f}€")
+                    elif sal_min:
+                        st.write(f"💰 À partir de {sal_min:,.0f}€")
+                elif o.salary_min:
+                    st.write(f"💰 {o.salary_min:,.0f}€")
+
                 if o.url:
-                    st.link_button("Voir l'offre", o.url)
+                    st.link_button("Voir l'offre ↗", o.url)
+
+            with col_a:
+                # Compétences par catégorie
+                if skills:
+                    st.markdown("**Compétences détectées**")
+                    category_labels = {
+                        "langages": "💻 Langages",
+                        "ml_ia": "🤖 ML / IA",
+                        "data_engineering": "⚙️ Data Engineering",
+                        "cloud": "☁️ Cloud & DevOps",
+                        "bi_analytics": "📊 BI / Analytics",
+                        "statistiques": "📐 Statistiques",
+                        "bases_de_donnees": "🗄️ Bases de données",
+                    }
+                    for cat, label in category_labels.items():
+                        cat_skills = skills.get(cat, [])
+                        if cat_skills:
+                            st.markdown(
+                                f"**{label}** : " + " · ".join(f"`{s}`" for s in cat_skills)
+                            )
+
+                st.markdown("**Description**")
+                desc = o.description or ""
+                st.write(desc[:600] + "..." if len(desc) > 600 else desc)
 
 
 # ── Coach ─────────────────────────────────────────────────────────────────────
