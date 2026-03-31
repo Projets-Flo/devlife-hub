@@ -26,14 +26,14 @@ DEFAULT_MODEL = "mistral"
 # Profil de Florian — injecté dans le prompt pour le matching personnalisé
 FLORIAN_PROFILE = """
 Profil candidat :
-- Diplôme : Ingénieur Polytech Lyon, Mathématiques Appliquées & Modélisation (remis en Octobre 2025)
+- Diplôme : Ingénieur Polytech Lyon, Mathématiques Appliquées & Modélisation (diplôme déjà obtenu en octobre 2025)
 - Expérience 1 : Caisses Sociales de Monaco — Data Analyst/Scientist (stage de fin d'études, 6 mois)
   Compétences : XGBoost, Random Forest, clustering séries temporelles, tests statistiques robustes,
   pandas, scikit-learn, SQL, détection de fraudes, données médico-administratives
 - Expérience 2 : Babolat, Lyon — Chargé de missions data et digitales (stage, 6 mois)
   Compétences : Power BI, Tableau, Looker Studio, Google Analytics 4,
   ContentSquare (niveau expert), automatisation de reportings, e-commerce
-- Compétences techniques : Python, R, SQL, SAS, C/C++, Matlab, Git,
+- Compétences techniques : Très bon niveau en Python, en R et en SQL, SAS, C/C++, Matlab, Git,
   pandas, scikit-learn, XGBoost, PyTorch, PySpark, TensorFlow,
   Power BI, Tableau, Looker Studio, BO Web Intelligence
 - Compétences statistiques : régressions Lasso/Ridge, ARIMA, Monte-Carlo,
@@ -79,7 +79,7 @@ Retourne exactement ce JSON (tous les champs obligatoires, toutes les valeurs te
   "score_adequation": 0,
   "score_justification": "Explication précise du score en 2-3 phrases, en mentionnant les éléments clés qui ont influencé la note",
   "points_forts_candidature": ["Points forts concrets du profil candidat pour CE poste spécifique"],
-  "faiblesses_candidature": ["Faiblesses ou manques concrets du profil pour CE poste, soyez honnête"],
+  "faiblesses_candidature": ["Faiblesses ou manques concrets du profil pour CE poste, par exemple vis à vis de l'expérience requise, des compétences techniques, .., soyez honnête, "],
   "competences_manquantes": ["Compétences demandées dans l'offre absentes du profil candidat"],
   "probabilite_succes": 0,
   "probabilite_succes_note": "Explication de la probabilité : concurrence estimée, niveau requis vs profil, contexte marché",
@@ -94,6 +94,11 @@ Règles importantes :
 - La probabilite_succes (0-100) estime les chances réelles d'être retenu, en tenant compte de la concurrence et du niveau junior du candidat
 - Pour le salaire_estime : si non mentionné, estime selon le poste, niveau, localisation et marché FR actuel (fourchette réaliste)
 - Sois honnête et nuancé, pas trop optimiste
+- Dans les points forts/faiblesses, mentionne des éléments concrets de l'offre et du profil, pas des généralités
+- Dans les atouts, fais référence à des atouts utiles pour ce poste précis, pas des atouts que j'ai mais qui ne sont pas forcément pertinents pour ce poste
+- Globalement dans l'analyse de l'offre, sois très concret et spécifique à CE poste précis, pas de généralités ou de conseils vagues qui pourraient s'appliquer à n'importe quelle offre.
+- Dans le conseil, parle de ce qui pourrait vraiment faire la différence pour CE poste précis, pas des conseils génériques
+- Dans le conseil, parle moi directemnent à la première personne du singulier ("je te conseille de...") pour que ce soit plus personnalisé
 - RETOURNE UNIQUEMENT LE JSON, rien d'autre"""
 
 
