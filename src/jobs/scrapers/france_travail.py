@@ -26,6 +26,16 @@ DEFAULT_KEYWORDS = [
     "MLops",
     "statisticien",
     "ingenieur simulation",
+    "IA",
+    "Intelligence artificielle",
+    "Deep learning",
+    "NLP",
+    "Computer vision",
+    "Simulation numérique",
+    "Data engineer",
+    "Big data",
+    "Risk analyst",
+    "Data",
 ]
 
 
