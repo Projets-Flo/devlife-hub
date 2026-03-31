@@ -68,6 +68,21 @@ def collect() -> dict:
         raw = client.search_all_keywords()
         normalized = client.normalize_all(raw)
 
+        EXCLUDED_KEYWORDS = {
+            "alternance",
+            "apprentissage",
+            "stage",
+            "stagiaire",
+            "professionnalisation",
+            "contrat pro",
+        }
+        normalized = [
+            o
+            for o in normalized
+            if not any(kw in (o.get("title") or "").lower() for kw in EXCLUDED_KEYWORDS)
+        ]
+        logger.info(f"{len(normalized)} offres après exclusion alternances/stages")
+
         with Session(engine) as session:
             inserted, skipped = upsert_offers(normalized, session)
 

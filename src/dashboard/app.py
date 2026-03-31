@@ -240,7 +240,7 @@ elif page == "🏃 Sport":
 
 # ── Offres d'emploi ───────────────────────────────────────────────────────────
 elif page == "🔍 Offres d'emploi":
-    from src.dashboard.pages.jobs import render
+    from src.dashboard.modules.jobs import render
 
     render()
 
