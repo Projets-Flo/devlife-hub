@@ -26,24 +26,25 @@ DEFAULT_MODEL = "mistral"
 # Profil de Florian — injecté dans le prompt pour le matching personnalisé
 FLORIAN_PROFILE = """
 Profil candidat :
-- Diplôme : Ingénieur Polytech Lyon, Mathématiques Appliquées & Modélisation (2025)
-- Expérience 1 : Caisses Sociales de Monaco — Data Analyst/Scientist (6 mois)
-  Compétences : XGBoost, Random Forest, clustering séries temporelles, tests statistiques,
-  pandas, scikit-learn, SQL, détection fraudes, données médico-administratives
-- Expérience 2 : Babolat — Chargé de missions data et digitales (6 mois)
+- Diplôme : Ingénieur Polytech Lyon, Mathématiques Appliquées & Modélisation (remis en Octobre 2025)
+- Expérience 1 : Caisses Sociales de Monaco — Data Analyst/Scientist (stage de fin d'études, 6 mois)
+  Compétences : XGBoost, Random Forest, clustering séries temporelles, tests statistiques robustes,
+  pandas, scikit-learn, SQL, détection de fraudes, données médico-administratives
+- Expérience 2 : Babolat, Lyon — Chargé de missions data et digitales (stage, 6 mois)
   Compétences : Power BI, Tableau, Looker Studio, Google Analytics 4,
-  ContentSquare (expert), automatisation reportings, e-commerce
+  ContentSquare (niveau expert), automatisation de reportings, e-commerce
 - Compétences techniques : Python, R, SQL, SAS, C/C++, Matlab, Git,
   pandas, scikit-learn, XGBoost, PyTorch, PySpark, TensorFlow,
   Power BI, Tableau, Looker Studio, BO Web Intelligence
-- Compétences stats : régressions Lasso/Ridge, ARIMA, Monte-Carlo,
+- Compétences statistiques : régressions Lasso/Ridge, ARIMA, Monte-Carlo,
   tests d'hypothèses, modèles bayésiens, K-means, SVM
 - Langues : Français (natif), Anglais (courant), Allemand (bon niveau)
-- Localisation : Saint-Julien-en-Genevois (proche Genève)
+- Mobilité : ouvert à une relocalisation partout en France
 - Disponibilité : immédiate
+- Contexte : jeune diplômé cherchant son premier emploi, avec 2 stages significatifs
 """
 
-ANALYSIS_PROMPT = """Tu es un expert en recrutement data science. Analyse cette offre d'emploi et retourne UNIQUEMENT un JSON valide, sans aucun texte avant ou après.
+ANALYSIS_PROMPT = """Tu es un expert senior en recrutement data science/data analyst/data enginner/machine learning en France. Analyse cette offre d'emploi et retourne UNIQUEMENT un JSON valide en français, sans aucun texte avant ou après.
 
 OFFRE :
 Titre : {title}
@@ -55,35 +56,45 @@ Description : {description}
 PROFIL CANDIDAT :
 {profile}
 
-Retourne exactement ce JSON (tous les champs obligatoires) :
+Retourne exactement ce JSON (tous les champs obligatoires, toutes les valeurs textuelles en français) :
 {{
-  "resume": "Résumé de l'offre en 2 phrases max",
-  "poste_type": "junior|confirmé|senior",
-  "culture_entreprise": "startup|scale-up|grand groupe|ESN/conseil|laboratoire/recherche|PME|inconnu",
-  "domaine_metier": "data science|machine learning|data engineering|data analyst|bi analytics|biostatistique|simulation|mlops|autre",
+  "resume": "Résumé clair et concis de l'offre en 2-3 phrases",
+  "poste_type": "Junior|Confirmé|Senior",
+  "culture_entreprise": "Startup|Scale-up|Grand groupe|ESN/conseil|Laboratoire/recherche|PME|Inconnu",
+  "domaine_metier": "Data Science|Machine Learning|Data Engineering|Data analyst|Bi analytics|Biostatistique|Simulation|MLOps|Autre",
+  "type_missions": "Technique/Développement|Analyse/Reporting|Conseil/Client|Recherche/R&D|Mixte",
   "experience_requise_ans": 0,
   "competences_requises": {{
-    "indispensables": ["liste des compétences vraiment requises"],
-    "souhaitees": ["liste des compétences appréciées mais pas obligatoires"]
+    "indispensables": ["compétences vraiment requises pour le poste"],
+    "souhaitees": ["compétences appréciées mais pas bloquantes"]
   }},
-  "stack_principale": ["les 5 technos les plus importantes du poste"],
+  "stack_principale": ["les 5 technos/outils les plus importants du poste"],
   "salaire_estime": {{
     "min": 0,
     "max": 0,
     "base": "extrait|estimé",
-    "note": "Explication courte de l'estimation"
+    "note": "Courte explication de l'estimation ou de la source"
   }},
-  "remote": "full remote|hybride|présentiel|non précisé",
+  "remote": "Full remote|Hybride|Présentiel|Non précisé",
   "score_adequation": 0,
-  "score_justification": "Pourquoi ce score (2-3 phrases)",
-  "points_forts_candidature": ["Ce qui joue en faveur du candidat pour ce poste"],
-  "competences_manquantes": ["Compétences du poste absentes du profil candidat"],
-  "conseil_candidature": "Un conseil personnalisé et concret pour postuler à ce poste"
+  "score_justification": "Explication précise du score en 2-3 phrases, en mentionnant les éléments clés qui ont influencé la note",
+  "points_forts_candidature": ["Points forts concrets du profil candidat pour CE poste spécifique"],
+  "faiblesses_candidature": ["Faiblesses ou manques concrets du profil pour CE poste, soyez honnête"],
+  "competences_manquantes": ["Compétences demandées dans l'offre absentes du profil candidat"],
+  "probabilite_succes": 0,
+  "probabilite_succes_note": "Explication de la probabilité : concurrence estimée, niveau requis vs profil, contexte marché",
+  "urgence_candidature": "Haute|Moyenne|Faible",
+  "urgence_note": "Explication : indices d'urgence dans l'offre (poste clé, délai, croissance entreprise...)",
+  "conseil_candidature": "Conseil personnalisé, concret et actionnable pour maximiser les chances sur CE poste précis"
 }}
 
-Pour le score_adequation (0-100) : base-toi sur la correspondance entre le profil candidat et les exigences du poste.
-Pour le salaire_estime : si non indiqué, estime en fonction du poste, niveau, localisation et marché FR/CH actuel.
-IMPORTANT : retourne UNIQUEMENT le JSON, rien d'autre."""
+Règles importantes :
+- Toutes les valeurs textuelles DOIVENT être en français
+- Le score_adequation (0-100) mesure la correspondance profil/poste
+- La probabilite_succes (0-100) estime les chances réelles d'être retenu, en tenant compte de la concurrence et du niveau junior du candidat
+- Pour le salaire_estime : si non mentionné, estime selon le poste, niveau, localisation et marché FR actuel (fourchette réaliste)
+- Sois honnête et nuancé, pas trop optimiste
+- RETOURNE UNIQUEMENT LE JSON, rien d'autre"""
 
 
 class JobAnalyzer:

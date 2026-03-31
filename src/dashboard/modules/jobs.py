@@ -91,12 +91,13 @@ def render():
     st.divider()
 
     # ── Tabs principaux ───────────────────────────────────────────────────────
-    tab_list, tab_match, tab_stats, tab_market = st.tabs(
+    tab_list, tab_match, tab_stats, tab_market, tab_cmd = st.tabs(
         [
             "📋 Toutes les offres",
             "⭐ Top matches",
             "📊 Statistiques",
             "🗺️ Marché",
+            "⚙️ Commandes",
         ]
     )
 
@@ -405,6 +406,100 @@ def render():
                     )
                     fig10.update_layout(height=320, margin=dict(l=0, r=0, t=0, b=0))
                     st.plotly_chart(fig10, use_container_width=True)
+
+    # Tab 5 — COMMANDES ──────────────────────────────────────────────────────────────
+
+    with tab_cmd:
+        st.subheader("⚙️ Commandes utiles")
+        st.caption(
+            "Copie-colle ces commandes dans ton terminal (avec .venv activé et Docker lancé)"
+        )
+
+        st.markdown("#### 🗄️ Base de données")
+        st.code("docker compose up -d db", language="bash")
+
+        st.markdown("#### 📥 Collecte des offres")
+        st.code("python -m src.jobs.scrapers.job_collector", language="bash")
+
+        st.markdown("#### 🔄 Pipeline complet (collecte + analyse nouvelles offres)")
+        st.code("python -m src.jobs.flows.daily_pipeline", language="bash")
+
+        st.markdown("#### 🤖 Analyse LLM (nouvelles offres uniquement)")
+        st.code("python -m src.jobs.matching.llm_analyzer", language="bash")
+
+        st.markdown("#### 🤖 Analyse LLM (nombre limité)")
+        st.code("python -m src.jobs.matching.llm_analyzer --max 50", language="bash")
+
+        st.markdown("#### 🗑️ Réinitialiser toutes les analyses LLM")
+        st.code(
+            """python -c "
+    from sqlalchemy.orm import Session
+    from src.common.database import JobOffer, engine
+    from sqlalchemy.orm.attributes import flag_modified
+
+    with Session(engine) as session:
+        for o in session.query(JobOffer).all():
+            tags = o.tags or {}
+            tags.pop('llm_analyzed', None)
+            tags.pop('llm_analysis', None)
+            o.tags = tags
+            flag_modified(o, 'tags')
+            o.match_score = None
+        session.commit()
+        print('Réinitialisé')
+    " """,
+            language="bash",
+        )
+
+        st.markdown("#### 🗑️ Vider complètement la base d'offres")
+        st.code(
+            """python -c "
+    from sqlalchemy.orm import Session
+    from src.common.database import JobOffer, engine
+
+    with Session(engine) as session:
+        count = session.query(JobOffer).delete()
+        session.commit()
+        print(f'{count} offres supprimées')
+    " """,
+            language="bash",
+        )
+
+        st.markdown("#### 🧹 Supprimer alternances/stages de la base")
+        st.code(
+            """python -c "
+    from sqlalchemy.orm import Session
+    from src.common.database import JobOffer, engine
+
+    excluded = ['alternance', 'apprentissage', 'stage', 'stagiaire']
+    with Session(engine) as session:
+        deleted = 0
+        for o in session.query(JobOffer).all():
+            if any(kw in (o.title or '').lower() for kw in excluded):
+                session.delete(o)
+                deleted += 1
+        session.commit()
+        print(f'{deleted} offres supprimées')
+    " """,
+            language="bash",
+        )
+
+        st.divider()
+        st.markdown("#### 📋 Ordre recommandé pour un démarrage complet")
+        st.markdown("""
+        1. `docker compose up -d db` — démarre PostgreSQL
+        2. `python -m src.jobs.scrapers.job_collector` — collecte les offres
+        3. *(optionnel)* supprimer alternances/stages
+        4. `python -m src.jobs.matching.llm_analyzer` — analyse LLM
+        5. Rafraîchir le dashboard → bouton 🔄 en haut
+        """)
+
+        st.markdown("#### 🔁 Ordre recommandé pour une mise à jour quotidienne")
+        st.markdown("""
+        1. `docker compose up -d db`
+        2. `python -m src.jobs.flows.daily_pipeline` — collecte + analyse en une seule commande
+        3. Rafraîchir le dashboard → bouton 🔄 en haut
+        """)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
