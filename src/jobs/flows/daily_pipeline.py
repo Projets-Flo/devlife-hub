@@ -8,6 +8,7 @@ Lancement automatique via Prefect :
     prefect deployment run daily-job-pipeline/default
 """
 
+import copy
 from datetime import datetime
 
 from loguru import logger
@@ -25,7 +26,6 @@ def collect_new_offers() -> int:
 
 def analyze_new_offers() -> int:
     """Lance l'analyse LLM uniquement sur les offres non encore analysées."""
-    import copy
     import time
 
     from sqlalchemy.orm import Session

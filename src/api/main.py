@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
 from src.common.config import settings
-from src.common.database import JobOffer, create_all_tables, get_session
+from src.common.database import JobOffer, create_all_tables, engine
 from src.common.logger import logger
 
 
@@ -56,17 +56,9 @@ async def root() -> dict:
     }
 
 
-# Les routers seront ajoutés ici au fur et à mesure :
-# from src.api.routes import jobs, sport, coach, ml
-# app.include_router(jobs.router, prefix="/jobs", tags=["Jobs"])
-# app.include_router(sport.router, prefix="/sport", tags=["Sport"])
-# app.include_router(coach.router, prefix="/coach", tags=["Coach"])
-# app.include_router(ml.router, prefix="/ml", tags=["ML"])
-
-
 @app.patch("/jobs/{job_id}/status")
 async def update_job_status(job_id: int, status: str):
-    with Session(next(get_session())) as session:
+    with Session(engine) as session:
         offer = session.get(JobOffer, job_id)
         if not offer:
             raise HTTPException(status_code=404, detail="Offre non trouvée")

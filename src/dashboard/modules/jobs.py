@@ -139,6 +139,8 @@ DEPARTEMENTS = {
 ZONE_PRIORITAIRE = ["74", "73", "01", "38", "69", "42"]
 DEP_TO_REGION = {dep: region for region, deps in REGIONS.items() for dep in deps}
 
+TRIAGE_DISPLAY_LIMIT = 80
+
 STATUS_LABELS = {
     "new": ("🆕", "À trier"),
     "interesting": ("✅", "Intéressant"),
@@ -303,7 +305,7 @@ def render():
         st.caption(f"**{len(filtered_offers)}** offres affichées")
 
         # Affichage compact avec boutons de triage
-        for o in filtered_offers[:80]:
+        for o in filtered_offers[:TRIAGE_DISPLAY_LIMIT]:
             _render_triage_card(o)
 
     # ═══════════════════════════════════════════════════════════════════════

@@ -13,6 +13,7 @@ Usage :
     result = analyzer.analyze(title="Data Scientist", description="...", location="Paris")
 """
 
+import copy
 import json
 import re
 import time
@@ -202,6 +203,7 @@ def analyze_all_offers(batch_size: int = 10, max_offers: int = None) -> int:
         max_offers: Limite le nombre d'offres à analyser (None = toutes)
     """
     from sqlalchemy.orm import Session
+    from sqlalchemy.orm.attributes import flag_modified
 
     from src.common.database import JobOffer, engine
 
@@ -232,14 +234,12 @@ def analyze_all_offers(batch_size: int = 10, max_offers: int = None) -> int:
             )
 
             if result:
-                import copy
-
                 tags = copy.deepcopy(offer.tags or {})
                 tags["llm_analysis"] = result
                 tags["llm_analyzed"] = True
                 tags["llm_model"] = analyzer.model
-                offer.tags = None  # force SQLAlchemy à détecter le changement
                 offer.tags = tags
+                flag_modified(offer, "tags")
 
                 # Met à jour le score de matching directement sur l'objet
                 score = result.get("score_adequation")

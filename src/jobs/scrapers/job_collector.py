@@ -104,4 +104,4 @@ def collect() -> dict:
 
 if __name__ == "__main__":
     result = collect()
-    print(result)
+    logger.info(result)

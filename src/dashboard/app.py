@@ -41,7 +41,6 @@ def load_sport_data():
 @st.cache_data(show_spinner="Chargement des courses…")
 def load_runs():
     df, parser = load_sport_data()
-    df, parser = load_sport_data()
     runs = df[
         (df["sport_type"] == "running")
         & (df["distance_km"].notna())
