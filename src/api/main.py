@@ -5,11 +5,12 @@ Point d'entrée principal.
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
 
 from src.common.config import settings
-from src.common.database import create_all_tables
+from src.common.database import JobOffer, create_all_tables, get_session
 from src.common.logger import logger
 
 
@@ -61,3 +62,14 @@ async def root() -> dict:
 # app.include_router(sport.router, prefix="/sport", tags=["Sport"])
 # app.include_router(coach.router, prefix="/coach", tags=["Coach"])
 # app.include_router(ml.router, prefix="/ml", tags=["ML"])
+
+
+@app.patch("/jobs/{job_id}/status")
+async def update_job_status(job_id: int, status: str):
+    with Session(next(get_session())) as session:
+        offer = session.get(JobOffer, job_id)
+        if not offer:
+            raise HTTPException(status_code=404, detail="Offre non trouvée")
+        offer.status = status
+        session.commit()
+        return {"id": job_id, "status": status}

@@ -96,6 +96,8 @@ class JobOffer(Base):
     remote: Mapped[bool] = mapped_column(Boolean, default=False)
     tags: Mapped[dict | None] = mapped_column(JSON)  # skills, technologies
     match_score: Mapped[float | None] = mapped_column(Float)  # NLP cosine similarity
+    status: Mapped[str] = mapped_column(String(20), default="new", nullable=True)
+    # new | interesting | rejected | maybe
     predicted_salary: Mapped[float | None] = mapped_column(Float)
     scraped_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
