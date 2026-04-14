@@ -49,7 +49,7 @@ def create_all_tables() -> None:
 # ── Enums ─────────────────────────────────────────────────────────────────────
 
 
-class JobStatus(str, PyEnum):
+class JobStatus(PyEnum):
     NEW = "new"
     APPLIED = "applied"
     INTERVIEW = "interview"
@@ -57,7 +57,7 @@ class JobStatus(str, PyEnum):
     OFFER = "offer"
 
 
-class ContractType(str, PyEnum):
+class ContractType(PyEnum):
     CDI = "CDI"
     CDD = "CDD"
     INTERNSHIP = "stage"
@@ -65,7 +65,7 @@ class ContractType(str, PyEnum):
     APPRENTICESHIP = "alternance"
 
 
-class SportType(str, PyEnum):
+class SportType(PyEnum):
     RUNNING = "running"
     STRENGTH = "strength"
     CYCLING = "cycling"
