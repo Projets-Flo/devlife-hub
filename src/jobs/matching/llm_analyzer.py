@@ -118,7 +118,7 @@ class JobAnalyzer:
             models = [m["name"] for m in resp.json().get("models", [])]
             if not any(self.model in m for m in models):
                 logger.warning(
-                    f"Modèle '{self.model}' non trouvé. " f"Lance : ollama pull {self.model}"
+                    f"Modèle '{self.model}' non trouvé. Lance : ollama pull {self.model}"
                 )
                 return False
             logger.info(f"Ollama OK — modèle {self.model} disponible")

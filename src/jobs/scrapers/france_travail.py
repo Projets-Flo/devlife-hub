@@ -114,8 +114,7 @@ class FranceTravailClient:
 
         except httpx.HTTPStatusError as e:
             logger.error(
-                f"Erreur API {e.response.status_code} pour '{keywords}' : "
-                f"{e.response.text[:300]}"
+                f"Erreur API {e.response.status_code} pour '{keywords}' : {e.response.text[:300]}"
             )
             return []
         except Exception as e:
