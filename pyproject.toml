@@ -52,6 +52,7 @@ dependencies = [
     "typer>=0.12",
     "tenacity>=8.3",
     "pytz>=2024.1",
+    "statsmodels>=0.14",
 ]
 
 [project.optional-dependencies]
