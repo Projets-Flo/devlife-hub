@@ -211,16 +211,48 @@ elif page == "🏃 Sport":
 
     with tab2:
         st.subheader("Toutes mes courses")
+
+        col_tri, col_ordre = st.columns(2)
+        with col_tri:
+            tri = st.selectbox(
+                "Trier par",
+                ["Date", "Distance", "Durée", "Allure", "FC moy.", "Calories"],
+            )
+        with col_ordre:
+            ordre = st.radio("Ordre", ["↓ Décroissant", "↑ Croissant"], horizontal=True)
+
+        tri_col = {
+            "Date": "date",
+            "Distance": "distance_km",
+            "Durée": "duration_min",
+            "Allure": "avg_pace_min_km",
+            "FC moy.": "avg_hr",
+            "Calories": "calories",
+        }
+        ascending = ordre == "↑ Croissant"
+
         display = (
             runs[["date", "distance_km", "duration_min", "avg_pace_min_km", "avg_hr", "calories"]]
             .copy()
-            .sort_values("date", ascending=False)
+            .sort_values(tri_col[tri], ascending=ascending)
         )
-        display["date"] = display["date"].dt.strftime("%d/%m/%Y %H:%M")
         display["duration_min"] = display["duration_min"].apply(format_duration)
         display["avg_pace_min_km"] = display["avg_pace_min_km"].apply(format_pace)
+        display["date"] = display["date"].dt.strftime("%d/%m/%Y %H:%M")
         display.columns = ["Date", "Distance (km)", "Durée", "Allure", "FC moy.", "Calories"]
-        st.dataframe(display, use_container_width=True, hide_index=True)
+        st.dataframe(
+            display,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Date": st.column_config.TextColumn("Date"),
+                "Distance (km)": st.column_config.NumberColumn("Distance (km)", format="%.3f"),
+                "Durée": st.column_config.TextColumn("Durée"),
+                "Allure": st.column_config.TextColumn("Allure"),
+                "FC moy.": st.column_config.NumberColumn("FC moy."),
+                "Calories": st.column_config.NumberColumn("Calories"),
+            },
+        )
 
     with tab3:
         st.subheader("Résumé par période")
