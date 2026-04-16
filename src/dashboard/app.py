@@ -30,6 +30,28 @@ with st.sidebar:
     st.caption("v0.1.0 · dev mode")
 
 
+def format_duration(minutes) -> str:
+    """Convertit des minutes décimales : 50'12'' ou 1h03'24''"""
+    if not minutes or pd.isna(minutes) or float(minutes) <= 0:
+        return "—"
+    total_seconds = int(round(float(minutes) * 60))
+    hours = total_seconds // 3600
+    mins = (total_seconds % 3600) // 60
+    secs = total_seconds % 60
+    if hours > 0:
+        return f"{hours}h{mins:02d}'{secs:02d}''"
+    return f"{mins}'{secs:02d}''"
+
+
+def format_pace(pace) -> str:
+    """Convertit une allure décimale : 5'16''/km"""
+    if not pace or pd.isna(pace) or float(pace) <= 0:
+        return "—"
+    mins = int(float(pace))
+    secs = int(round((float(pace) - mins) * 60))
+    return f"{mins}'{secs:02d}''/km"
+
+
 @st.cache_data(show_spinner="Chargement des séances…")
 def load_sport_data():
     parser = SamsungHealthParser()
@@ -81,8 +103,7 @@ def load_runs():
 
 # ── Accueil ───────────────────────────────────────────────────────────────────
 if page == "🏠 Accueil":
-    st.title("Tableau de bord DevLife Hub ")
-    # Sous-titre
+    st.title("Tableau de bord DevLife Hub")
     st.subheader("Voici ton résumé")
 
     runs, parser = load_runs()
@@ -101,12 +122,7 @@ if page == "🏠 Accueil":
         recent = runs[runs["date"] >= runs["date"].max() - pd.Timedelta(days=90)].copy()
         recent["week"] = recent["date"].dt.to_period("W").dt.start_time
         weekly = recent.groupby("week")["distance_km"].sum().reset_index()
-        fig = px.bar(
-            weekly,
-            x="week",
-            y="distance_km",
-            labels={"week": "", "distance_km": "km"},
-        )
+        fig = px.bar(weekly, x="week", y="distance_km", labels={"week": "", "distance_km": "km"})
         fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=220)
         st.plotly_chart(fig, use_container_width=True)
 
@@ -121,82 +137,77 @@ elif page == "🏃 Sport":
         st.stop()
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs(
-        ["📊 Courses", "📋 Détail", "📅 Période", "➕ Ajouter une séance", "✏️ Gérer mes séances"]
+        [
+            "📊 Courses",
+            "📋 Détail",
+            "📅 Période",
+            "➕ Ajouter une séance",
+            "✏️ Gérer mes séances",
+        ]
     )
 
     with tab1:
         st.subheader("Mes courses")
+        stats = parser.stats_running(runs)
 
-        if runs.empty:
-            st.info("Aucune course trouvée.")
-        else:
-            stats = parser.stats_running(runs)
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total courses", stats.get("total_sessions", 0))
+        c2.metric("Km totaux", f"{stats.get('total_km', 0)} km")
+        c3.metric("Plus longue sortie", f"{stats.get('best_km', 0)} km")
+        c4.metric("Sortie moyenne", f"{stats.get('avg_km', 0)} km")
 
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Total courses", stats.get("total_sessions", 0))
-            c2.metric("Km totaux", f"{stats.get('total_km', 0)} km")
-            c3.metric("Plus longue sortie", f"{stats.get('best_km', 0)} km")
-            c4.metric("Sortie moyenne", f"{stats.get('avg_km', 0)} km")
+        c5, c6, c7, c8 = st.columns(4)
+        c5.metric("Allure moyenne", format_pace(stats.get("avg_pace", 0)))
+        c6.metric("Meilleure allure", format_pace(stats.get("best_pace", 0)))
+        c7.metric("FC moyenne", f"{stats.get('avg_hr', 0):.0f} bpm")
+        c8.metric("Calories totales", f"{stats.get('total_calories', 0):,}")
 
-            c5, c6, c7, c8 = st.columns(4)
-            c5.metric("Allure moyenne", f"{stats.get('avg_pace', 0)} min/km")
-            c6.metric("Meilleure allure", f"{stats.get('best_pace', 0)} min/km")
-            c7.metric("FC moyenne", f"{stats.get('avg_hr', 0):.0f} bpm")
-            c8.metric("Calories totales", f"{stats.get('total_calories', 0):,}")
+        st.divider()
 
-            st.divider()
+        periode = st.selectbox(
+            "Période", ["Tout", "12 derniers mois", "6 derniers mois", "3 derniers mois"]
+        )
+        cutoffs = {"3 derniers mois": 90, "6 derniers mois": 180, "12 derniers mois": 365}
+        if periode in cutoffs:
+            runs = runs[runs["date"] >= runs["date"].max() - pd.Timedelta(days=cutoffs[periode])]
 
-            periode = st.selectbox(
-                "Période",
-                ["Tout", "12 derniers mois", "6 derniers mois", "3 derniers mois"],
-            )
-            cutoffs = {
-                "3 derniers mois": 90,
-                "6 derniers mois": 180,
-                "12 derniers mois": 365,
-            }
-            if periode in cutoffs:
-                runs = runs[
-                    runs["date"] >= runs["date"].max() - pd.Timedelta(days=cutoffs[periode])
-                ]
+        st.subheader("Distance par sortie")
+        fig1 = px.scatter(
+            runs,
+            x="date",
+            y="distance_km",
+            color="avg_hr",
+            color_continuous_scale="RdYlGn_r",
+            labels={"date": "", "distance_km": "km", "avg_hr": "FC moy."},
+            hover_data=["duration_min", "avg_pace_min_km"],
+        )
+        fig1.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0))
+        st.plotly_chart(fig1, use_container_width=True)
 
-            st.subheader("Distance par sortie")
-            fig1 = px.scatter(
-                runs,
+        runs_with_pace = runs.dropna(subset=["avg_pace_min_km"])
+        if not runs_with_pace.empty:
+            st.subheader("Évolution de l'allure")
+            fig2 = px.line(
+                runs_with_pace.sort_values("date"),
                 x="date",
-                y="distance_km",
-                color="avg_hr",
-                color_continuous_scale="RdYlGn_r",
-                labels={"date": "", "distance_km": "km", "avg_hr": "FC moy."},
-                hover_data=["duration_min", "avg_pace_min_km"],
+                y="avg_pace_min_km",
+                labels={"date": "", "avg_pace_min_km": "min/km"},
             )
-            fig1.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0))
-            st.plotly_chart(fig1, use_container_width=True)
+            fig2.update_layout(height=250, margin=dict(l=0, r=0, t=0, b=0))
+            fig2.update_yaxes(autorange="reversed")
+            st.plotly_chart(fig2, use_container_width=True)
 
-            runs_with_pace = runs.dropna(subset=["avg_pace_min_km"])
-            if not runs_with_pace.empty:
-                st.subheader("Évolution de l'allure (min/km)")
-                fig2 = px.line(
-                    runs_with_pace.sort_values("date"),
-                    x="date",
-                    y="avg_pace_min_km",
-                    labels={"date": "", "avg_pace_min_km": "min/km"},
-                )
-                fig2.update_layout(height=250, margin=dict(l=0, r=0, t=0, b=0))
-                fig2.update_yaxes(autorange="reversed")
-                st.plotly_chart(fig2, use_container_width=True)
-
-            runs_with_hr = runs.dropna(subset=["avg_hr"])
-            if not runs_with_hr.empty:
-                st.subheader("Évolution de la fréquence cardiaque")
-                fig3 = px.line(
-                    runs_with_hr.sort_values("date"),
-                    x="date",
-                    y="avg_hr",
-                    labels={"date": "", "avg_hr": "FC moy. (bpm)"},
-                )
-                fig3.update_layout(height=250, margin=dict(l=0, r=0, t=0, b=0))
-                st.plotly_chart(fig3, use_container_width=True)
+        runs_with_hr = runs.dropna(subset=["avg_hr"])
+        if not runs_with_hr.empty:
+            st.subheader("Évolution de la fréquence cardiaque")
+            fig3 = px.line(
+                runs_with_hr.sort_values("date"),
+                x="date",
+                y="avg_hr",
+                labels={"date": "", "avg_hr": "FC moy. (bpm)"},
+            )
+            fig3.update_layout(height=250, margin=dict(l=0, r=0, t=0, b=0))
+            st.plotly_chart(fig3, use_container_width=True)
 
     with tab2:
         st.subheader("Toutes mes courses")
@@ -206,25 +217,15 @@ elif page == "🏃 Sport":
             .sort_values("date", ascending=False)
         )
         display["date"] = display["date"].dt.strftime("%d/%m/%Y %H:%M")
-        display.columns = [
-            "Date",
-            "Distance (km)",
-            "Durée (min)",
-            "Allure (min/km)",
-            "FC moy.",
-            "Calories brûlées",
-        ]
+        display["duration_min"] = display["duration_min"].apply(format_duration)
+        display["avg_pace_min_km"] = display["avg_pace_min_km"].apply(format_pace)
+        display.columns = ["Date", "Distance (km)", "Durée", "Allure", "FC moy.", "Calories"]
         st.dataframe(display, use_container_width=True, hide_index=True)
 
     with tab3:
         st.subheader("Résumé par période")
 
-        decoupage = st.radio(
-            "Découpage",
-            ["Semaine", "Mois", "Année"],
-            horizontal=True,
-        )
-
+        decoupage = st.radio("Découpage", ["Semaine", "Mois", "Année"], horizontal=True)
         periode_map = {"Semaine": "W", "Mois": "M", "Année": "Y"}
         runs_copy = runs.copy()
         runs_copy["periode"] = runs_copy["date"].dt.to_period(periode_map[decoupage]).astype(str)
@@ -252,15 +253,18 @@ elif page == "🏃 Sport":
         fig.update_layout(height=280, margin=dict(l=0, r=0, t=0, b=0))
         st.plotly_chart(fig, use_container_width=True)
 
+        summary_display = summary.copy()
+        summary_display["total_min"] = summary_display["total_min"].apply(format_duration)
+        summary_display["avg_pace"] = summary_display["avg_pace"].apply(format_pace)
         st.dataframe(
-            summary.rename(
+            summary_display.rename(
                 columns={
                     "periode": "Période",
                     "sessions": "Séances",
                     "total_km": "Km totaux",
-                    "total_min": "Durée (min)",
+                    "total_min": "Durée totale",
                     "avg_hr": "FC moy. (bpm)",
-                    "avg_pace": "Allure moy. (min/km)",
+                    "avg_pace": "Allure moy.",
                 }
             ),
             use_container_width=True,
@@ -288,7 +292,7 @@ elif page == "🏃 Sport":
                         "Secondes", min_value=0, max_value=59, step=1, value=0, key="dur_sec"
                     )
 
-                st.markdown("**Allure moyenne (min/km)**")
+                st.markdown("**Allure moyenne**")
                 col_amin, col_asec = st.columns(2)
                 with col_amin:
                     allure_min = st.number_input("Min", min_value=0, step=1, value=0, key="all_min")
@@ -320,8 +324,6 @@ elif page == "🏃 Sport":
                 from src.common.database import WorkoutSession, engine
 
                 start_dt = datetime.combine(date, heure)
-
-                # Calcul allure automatique si non renseignée
                 if allure == 0 and distance > 0:
                     allure = duree / distance
 
@@ -345,7 +347,7 @@ elif page == "🏃 Sport":
 
                 st.success(
                     f"✅ Séance du {date.strftime('%d/%m/%Y')} enregistrée — "
-                    f"{distance} km en {duree_min}min{duree_sec:02d}s"
+                    f"{distance} km en {format_duration(duree)}"
                 )
                 st.cache_data.clear()
                 st.rerun()
@@ -357,7 +359,6 @@ elif page == "🏃 Sport":
 
         from src.common.database import WorkoutSession, engine
 
-        # Charge uniquement les séances manuelles
         with DBSession(engine) as db_session:
             manual_sessions = (
                 db_session.query(WorkoutSession)
@@ -370,10 +371,9 @@ elif page == "🏃 Sport":
         if not manual_sessions:
             st.info("Aucune séance manuelle. Ajoute-en une depuis l'onglet ➕ Ajouter.")
         else:
-            # Selectbox pour choisir la séance
             options = {
-                f"{s.date.strftime('%d/%m/%Y %H:%M')} — {s.distance_km} km "
-                f"— {int(s.duration_minutes)}min{int((s.duration_minutes % 1) * 60):02d}s": s
+                f"{s.date.strftime('%d/%m/%Y %H:%M')} — {s.distance_km} km"
+                f" — {format_duration(s.duration_minutes)}": s
                 for s in manual_sessions
             }
             choix = st.selectbox("Sélectionne une séance", list(options.keys()))
@@ -396,14 +396,11 @@ elif page == "🏃 Sport":
                     st.rerun()
 
             elif action == "✏️ Modifier":
-                # Durée décomposée
                 dur_min_val = int(selected.duration_minutes)
-                dur_sec_val = int((selected.duration_minutes % 1) * 60)
-
-                # Allure décomposée
+                dur_sec_val = int(round((selected.duration_minutes % 1) * 60))
                 pace = selected.avg_pace_min_km or 0
                 pace_min_val = int(pace)
-                pace_sec_val = int((pace % 1) * 60)
+                pace_sec_val = int(round((pace % 1) * 60))
 
                 with st.form("edit_session"):
                     col1, col2 = st.columns(2)
@@ -437,11 +434,15 @@ elif page == "🏃 Sport":
                                 key="edit_dur_sec",
                             )
 
-                        st.markdown("**Allure moyenne (min/km)**")
+                        st.markdown("**Allure moyenne**")
                         ca1, ca2 = st.columns(2)
                         with ca1:
                             new_all_min = st.number_input(
-                                "Min", min_value=0, step=1, value=pace_min_val, key="edit_all_min"
+                                "Min",
+                                min_value=0,
+                                step=1,
+                                value=pace_min_val,
+                                key="edit_all_min",
                             )
                         with ca2:
                             new_all_sec = st.number_input(
@@ -467,7 +468,10 @@ elif page == "🏃 Sport":
                             value=int(selected.max_heart_rate or 0),
                         )
                         new_calories = st.number_input(
-                            "Calories", min_value=0, step=1, value=int(selected.calories or 0)
+                            "Calories",
+                            min_value=0,
+                            step=1,
+                            value=int(selected.calories or 0),
                         )
                         new_elevation = st.number_input(
                             "Dénivelé (m)",
@@ -507,9 +511,13 @@ elif page == "🏃 Sport":
                             s.notes = new_notes if new_notes else None
                             db_session.commit()
 
-                        st.success("✅ Séance modifiée avec succès.")
+                        st.success(
+                            f"✅ Séance modifiée — {new_distance} km "
+                            f"en {format_duration(new_duree)}"
+                        )
                         st.cache_data.clear()
                         st.rerun()
+
 
 # ── Offres d'emploi ───────────────────────────────────────────────────────────
 elif page == "🔍 Offres d'emploi":
@@ -528,10 +536,9 @@ elif page == "🎯 Coach":
     st.subheader("Prochaines actions")
     st.markdown("""
     - [x] Setup projet ✓
-    - [x] Docker + MLflow + Prefect ✓
-    - [x] Import Samsung Health ✓ (1606 séances)
-    - [ ] Module Job Search (scraping offres)
-    - [ ] NLP matching CV ↔ offres
+    - [x] Docker + PostgreSQL ✓
+    - [x] Import Samsung Health ✓
+    - [x] Ajout séances manuelles ✓
     - [ ] Module Coach (Claude API)
     """)
 
@@ -539,15 +546,14 @@ elif page == "🎯 Coach":
 # ── ML Pipeline ───────────────────────────────────────────────────────────────
 elif page == "⚙️ ML Pipeline":
     st.title("⚙️ ML Pipeline")
-    st.info("MLflow disponible sur localhost:5000. Les premiers modèles seront trackés plus tard")
+    st.info("MLflow disponible sur localhost:5000. Les premiers modèles seront trackés plus tard.")
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("**Modèles prévus**")
         st.markdown("""
-        - 🔍 Job matcher (sentence-transformers)
-        - 💰 Salary predictor (XGBoost)
         - 📈 Training load forecaster (Prophet)
-        - 📄 CV gap analyzer
+        - 💰 Salary predictor (XGBoost)
+        - 🔍 Job matcher (sentence-transformers)
         """)
     with c2:
         st.markdown("**Stack MLOps**")
