@@ -201,3 +201,15 @@ class DailyAdvice(Base):
     priority: Mapped[int] = mapped_column(Integer, default=2)  # 1=urgent 2=normal 3=nice
     done: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class IntervalSession(Base):
+    """Séance de fractionné — structure flexible par blocs."""
+
+    __tablename__ = "interval_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    date: Mapped[datetime] = mapped_column(DateTime, index=True)
+    notes: Mapped[str | None] = mapped_column(Text)
+    blocs: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
