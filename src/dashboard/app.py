@@ -38,16 +38,45 @@ def load_sport_data():
     return df, parser
 
 
-@st.cache_data(show_spinner="Chargement des courses…")
+@st.cache_data(ttl=60, show_spinner="Chargement des séances…")
 def load_runs():
-    df, parser = load_sport_data()
-    runs = df[
-        (df["sport_type"].astype(str).str.contains("running"))
-        & (df["distance_km"].notna())
-        & (df["distance_km"] >= 1)
-        & (df["duration_min"] >= 2)
-    ].copy()
-    return runs, parser
+    from sqlalchemy.orm import Session as DBSession
+
+    from src.common.database import WorkoutSession, engine
+
+    with DBSession(engine) as session:
+        all_sessions = session.query(WorkoutSession).order_by(WorkoutSession.date).all()
+        session.expunge_all()
+
+    rows = []
+    for s in all_sessions:
+        if str(s.sport_type).lower() not in ["sporttype.running", "running"]:
+            continue
+        if not s.distance_km or s.distance_km < 1:
+            continue
+        if not s.duration_minutes or s.duration_minutes < 2:
+            continue
+        rows.append(
+            {
+                "id": s.id,
+                "date": s.date,
+                "sport_type": "running",
+                "distance_km": s.distance_km,
+                "duration_min": s.duration_minutes,
+                "avg_hr": s.avg_heart_rate,
+                "max_hr": s.max_heart_rate,
+                "avg_pace_min_km": s.avg_pace_min_km,
+                "elevation_m": s.elevation_gain_m,
+                "calories": s.calories,
+                "source": s.source or "manual",
+            }
+        )
+
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df["date"] = pd.to_datetime(df["date"])
+        df = df.sort_values("date").reset_index(drop=True)
+    return df, SamsungHealthParser()
 
 
 # ── Accueil ───────────────────────────────────────────────────────────────────
@@ -91,7 +120,9 @@ elif page == "🏃 Sport":
         st.warning("Aucune donnée.")
         st.stop()
 
-    tab1, tab2, tab3 = st.tabs(["📊 Courses", "📋 Détail", "📅 Période"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(
+        ["📊 Courses", "📋 Détail", "📅 Période", "➕ Ajouter une séance", "✏️ Gérer mes séances"]
+    )
 
     with tab1:
         st.subheader("Mes courses")
@@ -236,6 +267,249 @@ elif page == "🏃 Sport":
             hide_index=True,
         )
 
+    with tab4:
+        st.subheader("Ajouter une séance manuellement")
+
+        with st.form("add_session"):
+            col1, col2 = st.columns(2)
+            with col1:
+                date = st.date_input("Date")
+                heure = st.time_input("Heure")
+                distance = st.number_input("Distance (km)", min_value=0.0, step=0.1)
+
+                st.markdown("**Durée**")
+                col_dmin, col_dsec = st.columns(2)
+                with col_dmin:
+                    duree_min = st.number_input(
+                        "Minutes", min_value=0, step=1, value=0, key="dur_min"
+                    )
+                with col_dsec:
+                    duree_sec = st.number_input(
+                        "Secondes", min_value=0, max_value=59, step=1, value=0, key="dur_sec"
+                    )
+
+                st.markdown("**Allure moyenne (min/km)**")
+                col_amin, col_asec = st.columns(2)
+                with col_amin:
+                    allure_min = st.number_input("Min", min_value=0, step=1, value=0, key="all_min")
+                with col_asec:
+                    allure_sec = st.number_input(
+                        "Sec", min_value=0, max_value=59, step=1, value=0, key="all_sec"
+                    )
+
+            with col2:
+                fc_moy = st.number_input("FC moyenne (bpm)", min_value=0, step=1)
+                fc_max = st.number_input("FC max (bpm)", min_value=0, step=1)
+                calories = st.number_input("Calories", min_value=0, step=1)
+                elevation = st.number_input("Dénivelé (m)", min_value=0.0, step=1.0)
+                notes = st.text_area("Notes (optionnel)")
+
+            submitted = st.form_submit_button("💾 Enregistrer la séance", type="primary")
+
+        if submitted:
+            duree = duree_min + duree_sec / 60
+            allure = allure_min + allure_sec / 60 if (allure_min + allure_sec) > 0 else 0
+
+            if distance <= 0 or duree <= 0:
+                st.error("La distance et la durée sont obligatoires.")
+            else:
+                from datetime import datetime
+
+                from sqlalchemy.orm import Session as DBSession
+
+                from src.common.database import WorkoutSession, engine
+
+                start_dt = datetime.combine(date, heure)
+
+                # Calcul allure automatique si non renseignée
+                if allure == 0 and distance > 0:
+                    allure = duree / distance
+
+                new_session = WorkoutSession(
+                    sport_type="running",
+                    date=start_dt,
+                    duration_minutes=round(duree, 2),
+                    distance_km=round(distance, 3),
+                    calories=int(calories) if calories > 0 else None,
+                    avg_heart_rate=int(fc_moy) if fc_moy > 0 else None,
+                    max_heart_rate=int(fc_max) if fc_max > 0 else None,
+                    avg_pace_min_km=round(allure, 2) if allure > 0 else None,
+                    elevation_gain_m=round(elevation, 1) if elevation > 0 else None,
+                    notes=notes if notes else None,
+                    source="manual",
+                )
+
+                with DBSession(engine) as db_session:
+                    db_session.add(new_session)
+                    db_session.commit()
+
+                st.success(
+                    f"✅ Séance du {date.strftime('%d/%m/%Y')} enregistrée — "
+                    f"{distance} km en {duree_min}min{duree_sec:02d}s"
+                )
+                st.cache_data.clear()
+                st.rerun()
+
+    with tab5:
+        st.subheader("✏️ Gérer mes séances manuelles")
+
+        from sqlalchemy.orm import Session as DBSession
+
+        from src.common.database import WorkoutSession, engine
+
+        # Charge uniquement les séances manuelles
+        with DBSession(engine) as db_session:
+            manual_sessions = (
+                db_session.query(WorkoutSession)
+                .filter(WorkoutSession.source == "manual")
+                .order_by(WorkoutSession.date.desc())
+                .all()
+            )
+            db_session.expunge_all()
+
+        if not manual_sessions:
+            st.info("Aucune séance manuelle. Ajoute-en une depuis l'onglet ➕ Ajouter.")
+        else:
+            # Selectbox pour choisir la séance
+            options = {
+                f"{s.date.strftime('%d/%m/%Y %H:%M')} — {s.distance_km} km "
+                f"— {int(s.duration_minutes)}min{int((s.duration_minutes % 1) * 60):02d}s": s
+                for s in manual_sessions
+            }
+            choix = st.selectbox("Sélectionne une séance", list(options.keys()))
+            selected = options[choix]
+
+            action = st.radio("Action", ["✏️ Modifier", "🗑️ Supprimer"], horizontal=True)
+
+            if action == "🗑️ Supprimer":
+                st.warning(
+                    f"Tu vas supprimer la séance du {selected.date.strftime('%d/%m/%Y')} "
+                    f"({selected.distance_km} km). Cette action est irréversible."
+                )
+                if st.button("✅ Confirmer la suppression", type="primary"):
+                    with DBSession(engine) as db_session:
+                        s = db_session.get(WorkoutSession, selected.id)
+                        db_session.delete(s)
+                        db_session.commit()
+                    st.success("Séance supprimée.")
+                    st.cache_data.clear()
+                    st.rerun()
+
+            elif action == "✏️ Modifier":
+                # Durée décomposée
+                dur_min_val = int(selected.duration_minutes)
+                dur_sec_val = int((selected.duration_minutes % 1) * 60)
+
+                # Allure décomposée
+                pace = selected.avg_pace_min_km or 0
+                pace_min_val = int(pace)
+                pace_sec_val = int((pace % 1) * 60)
+
+                with st.form("edit_session"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        new_date = st.date_input("Date", value=selected.date.date())
+                        new_heure = st.time_input("Heure", value=selected.date.time())
+                        new_distance = st.number_input(
+                            "Distance (km)",
+                            min_value=0.0,
+                            step=0.1,
+                            value=float(selected.distance_km or 0),
+                        )
+
+                        st.markdown("**Durée**")
+                        cd1, cd2 = st.columns(2)
+                        with cd1:
+                            new_dur_min = st.number_input(
+                                "Minutes",
+                                min_value=0,
+                                step=1,
+                                value=dur_min_val,
+                                key="edit_dur_min",
+                            )
+                        with cd2:
+                            new_dur_sec = st.number_input(
+                                "Secondes",
+                                min_value=0,
+                                max_value=59,
+                                step=1,
+                                value=dur_sec_val,
+                                key="edit_dur_sec",
+                            )
+
+                        st.markdown("**Allure moyenne (min/km)**")
+                        ca1, ca2 = st.columns(2)
+                        with ca1:
+                            new_all_min = st.number_input(
+                                "Min", min_value=0, step=1, value=pace_min_val, key="edit_all_min"
+                            )
+                        with ca2:
+                            new_all_sec = st.number_input(
+                                "Sec",
+                                min_value=0,
+                                max_value=59,
+                                step=1,
+                                value=pace_sec_val,
+                                key="edit_all_sec",
+                            )
+
+                    with col2:
+                        new_fc_moy = st.number_input(
+                            "FC moyenne (bpm)",
+                            min_value=0,
+                            step=1,
+                            value=int(selected.avg_heart_rate or 0),
+                        )
+                        new_fc_max = st.number_input(
+                            "FC max (bpm)",
+                            min_value=0,
+                            step=1,
+                            value=int(selected.max_heart_rate or 0),
+                        )
+                        new_calories = st.number_input(
+                            "Calories", min_value=0, step=1, value=int(selected.calories or 0)
+                        )
+                        new_elevation = st.number_input(
+                            "Dénivelé (m)",
+                            min_value=0.0,
+                            step=1.0,
+                            value=float(selected.elevation_gain_m or 0),
+                        )
+                        new_notes = st.text_area("Notes", value=selected.notes or "")
+
+                    save = st.form_submit_button("💾 Enregistrer les modifications", type="primary")
+
+                if save:
+                    new_duree = new_dur_min + new_dur_sec / 60
+                    new_allure = new_all_min + new_all_sec / 60
+
+                    if new_distance <= 0 or new_duree <= 0:
+                        st.error("La distance et la durée sont obligatoires.")
+                    else:
+                        from datetime import datetime
+
+                        with DBSession(engine) as db_session:
+                            s = db_session.get(WorkoutSession, selected.id)
+                            s.date = datetime.combine(new_date, new_heure)
+                            s.distance_km = round(new_distance, 3)
+                            s.duration_minutes = round(new_duree, 2)
+                            s.avg_pace_min_km = (
+                                round(new_allure, 2)
+                                if new_allure > 0
+                                else round(new_duree / new_distance, 2)
+                            )
+                            s.avg_heart_rate = int(new_fc_moy) if new_fc_moy > 0 else None
+                            s.max_heart_rate = int(new_fc_max) if new_fc_max > 0 else None
+                            s.calories = int(new_calories) if new_calories > 0 else None
+                            s.elevation_gain_m = (
+                                round(new_elevation, 1) if new_elevation > 0 else None
+                            )
+                            s.notes = new_notes if new_notes else None
+                            db_session.commit()
+
+                        st.success("✅ Séance modifiée avec succès.")
+                        st.cache_data.clear()
+                        st.rerun()
 
 # ── Offres d'emploi ───────────────────────────────────────────────────────────
 elif page == "🔍 Offres d'emploi":
