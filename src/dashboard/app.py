@@ -42,7 +42,7 @@ def load_sport_data():
 def load_runs():
     df, parser = load_sport_data()
     runs = df[
-        (df["sport_type"] == "running")
+        (df["sport_type"].astype(str).str.contains("running"))
         & (df["distance_km"].notna())
         & (df["distance_km"] >= 1)
         & (df["duration_min"] >= 2)

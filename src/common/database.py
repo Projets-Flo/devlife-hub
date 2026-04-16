@@ -67,10 +67,13 @@ class ContractType(PyEnum):
 
 class SportType(PyEnum):
     RUNNING = "running"
-    STRENGTH = "strength"
-    CYCLING = "cycling"
     WALKING = "walking"
+    CYCLING = "cycling"
+    STRENGTH = "strength"
     OTHER = "other"
+
+    def __str__(self):
+        return self.value
 
 
 # ── Modèles Job Search ────────────────────────────────────────────────────────
