@@ -109,23 +109,13 @@ def clean_old_offers(days: int = 60) -> int:
 
 
 def run_pipeline():
-    """Pipeline complet : nettoyage → collecte → analyse."""
+    """Pipeline complet : nettoyage → collecte."""
     logger.info("=" * 50)
     logger.info(f"Démarrage pipeline — {datetime.now().strftime('%d/%m/%Y %H:%M')}")
     logger.info("=" * 50)
 
-    # 1. Nettoyage des vieilles offres
     clean_old_offers(days=60)
-
-    # 2. Collecte des nouvelles offres
-    new_offers = collect_new_offers()
-
-    # 3. Analyse LLM uniquement sur les nouvelles
-    if new_offers > 0:
-        logger.info(f"Lancement analyse LLM sur {new_offers} nouvelles offres…")
-        analyze_new_offers()
-    else:
-        logger.info("Pas de nouvelles offres — analyse LLM ignorée")
+    collect_new_offers()
 
     logger.success("Pipeline terminé")
 
