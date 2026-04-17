@@ -722,7 +722,7 @@ elif page == "🏃 Sport":
     # ── TAB 2 : DÉTAIL ───────────────────────────────────────────────────────
     with tab2:
         # Running
-        st.subheader("🏃 Détail des courses")
+        st.subheader("🏃 Détail des courses d'endurance")
         col_tri, col_ordre = st.columns(2)
         with col_tri:
             tri = st.selectbox(
@@ -783,59 +783,223 @@ elif page == "🏃 Sport":
 
     # ── TAB 3 : PÉRIODE ──────────────────────────────────────────────────────
     with tab3:
-        # Running
         st.subheader("🏃 Courses par période")
-        decoupage = st.radio(
-            "Découpage", ["Semaine", "Mois", "Année"], horizontal=True, key="per_dec"
-        )
-        periode_map = {"Semaine": "W", "Mois": "M", "Année": "Y"}
 
-        if not runs.empty:
-            runs_copy = runs.copy()
-            runs_copy["periode"] = (
-                runs_copy["date"].dt.to_period(periode_map[decoupage]).astype(str)
-            )
-            summary = (
-                runs_copy.groupby("periode")
-                .agg(
-                    sessions=("date", "count"),
-                    total_km=("distance_km", "sum"),
-                    total_min=("duration_min", "sum"),
-                    avg_hr=("avg_hr", "mean"),
-                    avg_pace=("avg_pace_min_km", "mean"),
+        if runs.empty:
+            st.info("Aucune course enregistrée.")
+        else:
+            # ── Filtre dates (même logique que tab1) ──────────────────────────
+            date_min_p = runs["date"].min().date()
+            date_max_p = runs["date"].max().date()
+
+            col_mode_p, col_filtre_p = st.columns([1, 2])
+            with col_mode_p:
+                mode_filtre_p = st.radio(
+                    "Filtrer par",
+                    ["Période prédéfinie", "Dates personnalisées"],
+                    horizontal=False,
+                    key="per_filter_mode",
                 )
-                .round(1)
-                .reset_index()
-                .sort_values("periode", ascending=False)
-            )
-            fig_per = px.bar(
-                summary.sort_values("periode"),
-                x="periode",
-                y="total_km",
-                labels={"periode": "", "total_km": "km"},
-            )
-            fig_per.update_layout(height=280, margin=dict(l=0, r=0, t=0, b=0))
-            st.plotly_chart(fig_per, use_container_width=True)
-
-            summary_display = summary.copy()
-            summary_display["total_min"] = summary_display["total_min"].apply(format_duration)
-            summary_display["avg_pace"] = summary_display["avg_pace"].apply(format_pace)
-            st.dataframe(
-                summary_display.rename(
-                    columns={
-                        "periode": "Période",
-                        "sessions": "Séances",
-                        "total_km": "Km totaux",
-                        "total_min": "Durée totale",
-                        "avg_hr": "FC moy.",
-                        "avg_pace": "Allure moy.",
+            with col_filtre_p:
+                if mode_filtre_p == "Période prédéfinie":
+                    periode_sel = st.selectbox(
+                        "Période",
+                        [
+                            "Tout",
+                            "Ce mois-ci",
+                            "3 derniers mois",
+                            "6 derniers mois",
+                            "Cette année",
+                            "12 derniers mois",
+                        ],
+                        key="per_periode_sel",
+                    )
+                    today_p = pd.Timestamp.today().normalize()
+                    cutoffs_p = {
+                        "Ce mois-ci": today_p.replace(day=1),
+                        "3 derniers mois": today_p - pd.Timedelta(days=90),
+                        "6 derniers mois": today_p - pd.Timedelta(days=180),
+                        "Cette année": today_p.replace(month=1, day=1),
+                        "12 derniers mois": today_p - pd.Timedelta(days=365),
                     }
-                ),
-                use_container_width=True,
-                hide_index=True,
-            )
+                    p_debut = cutoffs_p.get(periode_sel, pd.Timestamp(date_min_p))
+                    p_fin = pd.Timestamp(date_max_p)
+                else:
+                    col_p1, col_p2 = st.columns(2)
+                    with col_p1:
+                        p_debut = pd.Timestamp(
+                            st.date_input("Du", value=date_min_p, key="per_date_from")
+                        )
+                    with col_p2:
+                        p_fin = pd.Timestamp(
+                            st.date_input("Au", value=date_max_p, key="per_date_to")
+                        )
 
-        # Fractionné par période
+            runs_p = runs[
+                (runs["date"] >= p_debut) & (runs["date"] <= p_fin + pd.Timedelta(days=1))
+            ].copy()
+
+            if runs_p.empty:
+                st.warning("Aucune course sur cette période.")
+            else:
+                decoupage = st.radio(
+                    "Découpage",
+                    ["Semaine", "Mois", "Année"],
+                    horizontal=True,
+                    key="per_dec",
+                )
+                periode_map = {"Semaine": "W", "Mois": "M", "Année": "Y"}
+
+                runs_copy = runs_p.copy()
+                runs_copy["periode"] = (
+                    runs_copy["date"].dt.to_period(periode_map[decoupage]).astype(str)
+                )
+
+                summary = (
+                    runs_copy.groupby("periode")
+                    .agg(
+                        sessions=("date", "count"),
+                        total_km=("distance_km", "sum"),
+                        total_min=("duration_min", "sum"),
+                        avg_hr=("avg_hr", "mean"),
+                        avg_pace=("avg_pace_min_km", "mean"),
+                    )
+                    .round(1)
+                    .reset_index()
+                    .sort_values("periode", ascending=False)
+                )
+
+                # ── Génère toutes les périodes même vides ─────────────────────
+                all_periods = pd.period_range(
+                    start=runs_p["date"].min(),
+                    end=runs_p["date"].max(),
+                    freq=periode_map[decoupage],
+                ).astype(str)
+
+                summary_full = (
+                    pd.DataFrame({"periode": all_periods})
+                    .merge(summary, on="periode", how="left")
+                    .fillna({"sessions": 0, "total_km": 0, "total_min": 0})
+                )
+                summary_full["avg_hr"] = summary_full["avg_hr"]
+                summary_full["avg_pace"] = summary_full["avg_pace"]
+
+                # ── Métriques synthèse (basées sur toutes les périodes) ───────
+                nb_periodes = len(summary_full)
+                periodes_actives = summary_full[summary_full["sessions"] > 0]
+                regularite = round(len(periodes_actives) / nb_periodes * 100) if nb_periodes else 0
+                km_par_periode = round(summary_full["total_km"].mean(), 1)
+                label_periode = {"Semaine": "semaine", "Mois": "mois", "Année": "année"}[decoupage]
+
+                mc1, mc2, mc3, mc4 = st.columns(4)
+                mc1.metric(f"Km / {label_periode} (moy.)", f"{km_par_periode} km")
+                mc2.metric(
+                    f"Séances / {label_periode} (moy.)",
+                    f"{summary_full['sessions'].mean():.1f}",
+                )
+                mc3.metric(
+                    "Régularité",
+                    f"{regularite}%",
+                    help=(
+                        f"{len(periodes_actives)} {label_periode}s actives "
+                        f"sur {nb_periodes} au total"
+                    ),
+                )
+                mc4.metric("Km total sur la période", f"{runs_p['distance_km'].sum():.1f} km")
+
+                st.divider()
+
+                # ── Axe X : label mois uniquement ─────────────────────────────
+                # On affiche le mois uniquement quand la période change de mois
+                def make_tick_labels(periods, freq):
+                    """Retourne les labels à afficher — mois/année uniquement."""
+                    labels = []
+                    last_month = None
+                    for p in periods:
+                        try:
+                            ts = pd.Period(p, freq=freq).start_time
+                            month_key = (ts.year, ts.month)
+                            if month_key != last_month:
+                                labels.append(ts.strftime("%b %Y"))
+                                last_month = month_key
+                            else:
+                                labels.append("")
+                        except Exception:
+                            labels.append("")
+                    return labels
+
+                tick_labels = make_tick_labels(
+                    summary_full["periode"].tolist(), periode_map[decoupage]
+                )
+
+                # ── Graphe km par période ─────────────────────────────────────
+                fig_per = px.bar(
+                    summary_full,
+                    x="periode",
+                    y="total_km",
+                    labels={"periode": "", "total_km": "km"},
+                    color="total_km",
+                    color_continuous_scale="Teal",
+                )
+                fig_per.update_xaxes(
+                    tickvals=summary_full["periode"].tolist(),
+                    ticktext=tick_labels,
+                    tickangle=-45,
+                )
+                fig_per.update_layout(
+                    height=300,
+                    margin=dict(l=0, r=0, t=30, b=60),
+                    title=dict(text=f"Km par {label_periode}", font=dict(size=13)),
+                    coloraxis_showscale=False,
+                )
+                st.plotly_chart(fig_per, use_container_width=True)
+
+                # ── Graphe séances par période ────────────────────────────────
+                fig_ses = px.bar(
+                    summary_full,
+                    x="periode",
+                    y="sessions",
+                    labels={"periode": "", "sessions": "Séances"},
+                    color="sessions",
+                    color_continuous_scale="Blues",
+                )
+                fig_ses.update_xaxes(
+                    tickvals=summary_full["periode"].tolist(),
+                    ticktext=tick_labels,
+                    tickangle=-45,
+                )
+                fig_ses.update_layout(
+                    height=250,
+                    margin=dict(l=0, r=0, t=30, b=60),
+                    title=dict(text=f"Séances par {label_periode}", font=dict(size=13)),
+                    coloraxis_showscale=False,
+                )
+                st.plotly_chart(fig_ses, use_container_width=True)
+
+                # ── Tableau (uniquement périodes actives) ─────────────────────
+                summary_display = summary.copy()
+                summary_display["total_min"] = summary_display["total_min"].apply(format_duration)
+                summary_display["avg_pace"] = summary_display["avg_pace"].apply(format_pace)
+                summary_display["avg_hr"] = summary_display["avg_hr"].round(0).astype("Int64")
+                st.dataframe(
+                    summary_display.rename(
+                        columns={
+                            "periode": "Période",
+                            "sessions": "Séances",
+                            "total_km": "Km totaux",
+                            "total_min": "Durée totale",
+                            "avg_hr": "FC moy.",
+                            "avg_pace": "Allure moy.",
+                        }
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Km totaux": st.column_config.NumberColumn("Km totaux", format="%.1f km"),
+                    },
+                )
+
+        # ── Fractionné par période ────────────────────────────────────────────
         st.divider()
         st.subheader("⚡ Fractionné par période")
 
@@ -847,15 +1011,26 @@ elif page == "🏃 Sport":
                 blocs = s.blocs.get("blocs", []) if isinstance(s.blocs, dict) else []
                 total_m = 0
                 nb_reps = 0
+                best_times: dict = {}
                 for b in blocs:
                     if b.get("type") == "serie":
+                        dist = b.get("distance_m", 0)
                         reps = b.get("repetitions", [])
-                        total_m += b.get("distance_m", 0) * len(reps)
+                        total_m += dist * len(reps)
                         nb_reps += len(reps)
+                        if reps:
+                            best = min(r["temps_sec"] for r in reps)
+                            best_times[dist] = min(best_times.get(dist, float("inf")), best)
                     elif b.get("type") == "serie_double":
+                        dist = b.get("distance_m", 0)
                         groupes = b.get("groupes", [])
-                        total_m += b.get("distance_m", 0) * 2 * len(groupes)
+                        total_m += dist * 2 * len(groupes)
                         nb_reps += len(groupes) * 2
+                        for g in groupes:
+                            for e in g:
+                                t = e["temps_sec"]
+                                best_times[dist] = min(best_times.get(dist, float("inf")), t)
+
                 int_rows.append(
                     {
                         "date": pd.to_datetime(s.date),
@@ -865,29 +1040,73 @@ elif page == "🏃 Sport":
                 )
 
             int_df = pd.DataFrame(int_rows)
-            int_df["periode"] = int_df["date"].dt.to_period(periode_map[decoupage]).astype(str)
-            int_summary = (
-                int_df.groupby("periode")
-                .agg(
-                    seances=("date", "count"),
-                    total_m=("distance_m", "sum"),
-                    total_reps=("nb_reps", "sum"),
+
+            # Filtre dates sur le fractionné aussi
+            if not runs.empty:
+                int_df_filtered = int_df[
+                    (int_df["date"] >= p_debut) & (int_df["date"] <= p_fin + pd.Timedelta(days=1))
+                ].copy()
+            else:
+                int_df_filtered = int_df.copy()
+
+            if int_df_filtered.empty:
+                st.info("Aucune séance fractionné sur cette période.")
+            else:
+                # Métriques fractionné
+                fi1, fi2, fi3 = st.columns(3)
+                fi1.metric("Séances fractionné", len(int_df_filtered))
+                fi2.metric("Répétitions totales", int(int_df_filtered["nb_reps"].sum()))
+                fi3.metric(
+                    "Distance totale",
+                    f"{int(int_df_filtered['distance_m'].sum())} m",
                 )
-                .reset_index()
-                .sort_values("periode", ascending=False)
-            )
-            st.dataframe(
-                int_summary.rename(
-                    columns={
-                        "periode": "Période",
-                        "seances": "Séances",
-                        "total_m": "Distance totale (m)",
-                        "total_reps": "Répétitions totales",
-                    }
-                ),
-                use_container_width=True,
-                hide_index=True,
-            )
+
+                int_df_filtered["periode"] = (
+                    int_df_filtered["date"].dt.to_period(periode_map[decoupage]).astype(str)
+                )
+                int_summary = (
+                    int_df_filtered.groupby("periode")
+                    .agg(
+                        seances=("date", "count"),
+                        total_m=("distance_m", "sum"),
+                        total_reps=("nb_reps", "sum"),
+                    )
+                    .reset_index()
+                    .sort_values("periode", ascending=False)
+                )
+
+                # Graphe séances fractionné
+                fig_int = px.bar(
+                    int_summary.sort_values("periode"),
+                    x="periode",
+                    y="total_reps",
+                    labels={"periode": "", "total_reps": "Répétitions"},
+                    color="total_reps",
+                    color_continuous_scale="Purples",
+                )
+                fig_int.update_layout(
+                    height=220,
+                    margin=dict(l=0, r=0, t=30, b=0),
+                    title=dict(
+                        text=f"Répétitions de fractionné par {label_periode}",
+                        font=dict(size=13),
+                    ),
+                    coloraxis_showscale=False,
+                )
+                st.plotly_chart(fig_int, use_container_width=True)
+
+                st.dataframe(
+                    int_summary.rename(
+                        columns={
+                            "periode": "Période",
+                            "seances": "Séances",
+                            "total_m": "Distance (m)",
+                            "total_reps": "Répétitions",
+                        }
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
     # ── TAB 4 : AJOUTER ──────────────────────────────────────────────────────
     with tab4:
