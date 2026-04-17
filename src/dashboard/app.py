@@ -606,7 +606,7 @@ elif page == "🏃 Sport":
                 fig_best.update_layout(
                     height=260,
                     margin=dict(l=0, r=0, t=0, b=0),
-                    yaxis=dict(autorange="reversed", title="Temps (sec)"),
+                    yaxis=dict(title="Temps (sec)"),
                 )
                 st.plotly_chart(fig_best, use_container_width=True)
 
@@ -626,7 +626,7 @@ elif page == "🏃 Sport":
                 fig_all.update_layout(
                     height=260,
                     margin=dict(l=0, r=0, t=0, b=0),
-                    yaxis=dict(autorange="reversed", title="Temps (sec)"),
+                    yaxis=dict(title="Temps (sec)"),
                 )
                 st.plotly_chart(fig_all, use_container_width=True)
                 st.caption("Axe inversé : plus bas = plus rapide")
