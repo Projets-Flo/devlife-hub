@@ -1,7 +1,7 @@
 # 🚀 DevLife Hub
 
 > Tableau de bord personnel end-to-end construit pour m'aider au quotidien dans deux domaines :
-> la **recherche d'emploi** (agrégation et triage d'offres) et le **suivi de mes performances sportives** (courses à pied).
+> la **recherche d'emploi** (agrégation et triage d'offres) et le **suivi de mes performances sportives** (courses à pied et entraînements fractionné).
 >
 > Projet construit de A à Z — ingestion de données, stockage, visualisation, orchestration — avec une attention particulière portée aux bonnes pratiques (CI/CD, typage, tests, pre-commit).
 
@@ -29,16 +29,33 @@ Jeune diplômé ingénieur (Polytech Lyon — Mathématiques Appliquées & Modé
 - Pipeline quotidien automatisable via **Prefect**
 
 ### 🏃 Module Sport
+
+#### Courses endurance
 - Import et parsing des exports **Samsung Health** (CSV) — format réel vérifié sur données personnelles
-- 72 courses à pied validées — correspondance exacte avec les totaux Samsung Health
+- Stockage persistant dans **PostgreSQL** — les données Samsung Health et les séances manuelles cohabitent en base
 - Filtres : source native uniquement, durée minimum, exclusion des séances corrompues
-- Dashboard **Streamlit** avec :
+- **Ajout manuel de séances** depuis le dashboard (formulaire complet : distance, durée, allure, FC, dénivelé, notes)
+- **Modification et suppression** des séances manuelles depuis le dashboard
+- Dashboard avec :
   - 8 métriques clés (km totaux, allure moyenne, meilleure sortie, FC moyenne, calories...)
+  - Filtre de dates flexible (périodes prédéfinies ou plage personnalisée)
   - Graphe de progression des distances (scatter coloré par FC)
   - Évolution de l'allure dans le temps
   - Évolution de la fréquence cardiaque
-  - Résumé par semaine / mois / année (toggle interactif)
-  - Tableau détaillé de toutes les séances
+  - Résumé par semaine / mois / année avec métriques de régularité
+  - Tableau détaillé trié par n'importe quelle colonne
+  - Durées et allures affichées en format lisible (5'16''/km, 50'12'', 1h03'24'')
+
+#### Entraînements fractionné
+- Saisie structurée par **blocs** dans l'ordre de la séance : échauffement, séries, récupération
+- Trois types de blocs :
+  - **Série simple** : N × distance avec temps individuels et récupération
+  - **Série double** : N × (2 × distance) avec pause intra-groupe et récupération
+  - **Échauffement / Récupération** : par distance ou par durée
+- Tableau récapitulatif par distance : meilleur temps, meilleure vitesse, vitesse moyenne, dernière performance
+- Graphe de progression de la **meilleure vitesse par séance** (ligne)
+- Graphe de **toutes les répétitions** (scatter)
+- Modification et suppression des séances depuis le dashboard
 
 ---
 
@@ -54,18 +71,19 @@ Jeune diplômé ingénieur (Polytech Lyon — Mathématiques Appliquées & Modé
 | **API backend** | FastAPI, Pydantic v2 |
 | **Orchestration** | Prefect 3 |
 | **Collecte** | France Travail API (OAuth2), httpx |
-| **Data** | pandas, numpy |
+| **Data** | pandas, numpy, statsmodels |
 | **Infra locale** | Docker, Docker Compose |
 | **Qualité code** | Ruff, pre-commit, pytest |
 | **CI/CD** | GitHub Actions |
 | **Versioning** | Git, GitHub |
 
-### Expérimental / utilisé en développement
+### Expérimental / prévu
 
 | Outil | Usage | Statut |
 |-------|-------|--------|
 | **MLflow** | Tracking d'expériences ML | Configuré, pas encore utilisé en prod |
-| **Ollama / Mistral 7B** | Analyse LLM locale des offres | Abandonné (voir section ci-dessous) |
+| **Prophet** | Prévision de charge d'entraînement | Prévu Phase 3 |
+| **scikit-learn / XGBoost** | Modèles ML salary predictor | Prévu Phase 3 |
 
 ---
 
@@ -98,7 +116,7 @@ Jeune diplômé ingénieur (Polytech Lyon — Mathématiques Appliquées & Modé
                ▼                        ▼
 ┌─────────────────────────────────────────────────────────┐
 │              PostgreSQL (Docker local)                   │
-│         job_offers · applications · workout_sessions     │
+│   job_offers · workout_sessions · interval_sessions      │
 └──────────────────────────┬──────────────────────────────┘
                            │
                            ▼
@@ -109,7 +127,7 @@ Jeune diplômé ingénieur (Polytech Lyon — Mathématiques Appliquées & Modé
                            ▼
 ┌─────────────────────────────────────────────────────────┐
 │               Streamlit Dashboard                        │
-│   Job Search · Triage · Favoris · Sport · Marché         │
+│   Job Search · Triage · Favoris · Sport · Fractionné     │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -126,7 +144,7 @@ Jeune diplômé ingénieur (Polytech Lyon — Mathématiques Appliquées & Modé
 
 ```bash
 # Cloner le repo
-git clone https://github.com/Flomfoot/devlife-hub.git
+git clone https://github.com/Projets-Flo/devlife-hub.git
 cd devlife-hub
 
 # Environnement virtuel
@@ -142,7 +160,7 @@ pre-commit install
 
 # Variables d'environnement
 cp .env.example .env
-# Remplir .env avec les clés API (France Travail, OpenWeather...)
+# Remplir .env avec les clés API (France Travail...)
 ```
 
 ### Lancer l'infrastructure
@@ -158,17 +176,37 @@ $env:PYTHONPATH="." ; streamlit run src/dashboard/app.py   # Windows
 # PYTHONPATH=. streamlit run src/dashboard/app.py          # Linux/Mac
 ```
 
+### Importer les données Samsung Health
+
+1. Samsung Health → Profil → ⚙️ → Télécharger les données personnelles
+2. Dézipper dans `data/exports/samsung_health/`
+3. Importer en base PostgreSQL :
+
+```bash
+python -c "
+from src.sport.parsers.samsung_health import SamsungHealthParser
+from src.common.database import WorkoutSession, engine
+from sqlalchemy.orm import Session
+
+parser = SamsungHealthParser()
+sessions = parser.parse_workouts()
+
+with Session(engine) as session:
+    existing = {o.external_id for o in session.query(WorkoutSession).all()}
+    new = [s for s in sessions if s.external_id not in existing]
+    for s in new:
+        s.sport_type = s.sport_type.value
+        session.add(s)
+    session.commit()
+    print(f'{len(new)} séances importées')
+"
+```
+
 ### Collecter les offres d'emploi
 
 ```bash
 python -m src.jobs.scrapers.job_collector
 ```
-
-### Importer les données Samsung Health
-
-1. Samsung Health → Profil → ⚙️ → Télécharger les données personnelles
-2. Dézipper dans `data/exports/samsung_health/`
-3. Relancer le dashboard — les données sont chargées automatiquement
 
 ---
 
@@ -176,33 +214,34 @@ python -m src.jobs.scrapers.job_collector
 
 ```
 devlife-hub/
-├── .github/workflows/ci.yml        # CI/CD — lint + tests + Docker build
+├── .github/workflows/ci.yml         # CI/CD — lint + tests + Docker build
 ├── src/
 │   ├── common/
-│   │   ├── config.py               # Settings Pydantic (variables d'env)
-│   │   ├── database.py             # Modèles SQLAlchemy (JobOffer, WorkoutSession...)
-│   │   └── logger.py               # Loguru — format dev / prod
+│   │   ├── config.py                # Settings Pydantic (variables d'env)
+│   │   ├── database.py              # Modèles SQLAlchemy
+│   │   │                            #   JobOffer, WorkoutSession, IntervalSession
+│   │   └── logger.py                # Loguru — format dev / prod
 │   ├── jobs/
 │   │   ├── scrapers/
-│   │   │   ├── france_travail.py   # Client API France Travail (OAuth2)
-│   │   │   └── job_collector.py    # Orchestrateur de collecte
+│   │   │   ├── france_travail.py    # Client API France Travail (OAuth2)
+│   │   │   └── job_collector.py     # Orchestrateur de collecte
 │   │   ├── matching/
-│   │   │   └── extractor.py        # Extraction règles-based (compétences, expérience)
+│   │   │   └── extractor.py         # Extraction règles-based (compétences)
 │   │   └── flows/
-│   │       └── daily_pipeline.py   # Pipeline Prefect quotidien
+│   │       └── daily_pipeline.py    # Pipeline Prefect quotidien
 │   ├── sport/
 │   │   └── parsers/
-│   │       └── samsung_health.py   # Parser CSV Samsung Health
+│   │       └── samsung_health.py    # Parser CSV Samsung Health
 │   ├── api/
-│   │   └── main.py                 # FastAPI — endpoints REST
+│   │   └── main.py                  # FastAPI — endpoints REST
 │   └── dashboard/
-│       ├── app.py                  # Streamlit — point d'entrée
+│       ├── app.py                   # Streamlit — point d'entrée
 │       └── modules/
-│           └── jobs.py             # Page offres d'emploi (triage, filtres, stats)
+│           └── jobs.py              # Page offres d'emploi (triage, filtres, stats)
 ├── tests/
 │   └── unit/
 │       └── test_samsung_parser.py
-├── data/exports/samsung_health/    # Export Samsung (ignoré par git)
+├── data/exports/samsung_health/     # Export Samsung (ignoré par git)
 ├── docker-compose.yml
 ├── Dockerfile
 ├── pyproject.toml
@@ -214,18 +253,20 @@ devlife-hub/
 ## Évolutions prévues
 
 ### Module Sport
-- [ ] Saisie manuelle d'une séance directement depuis le dashboard (formulaire)
-- [ ] Prédiction de charge d'entraînement avec **Prophet** (time series)
-- [ ] Plan d'entraînement généré automatiquement selon la météo (**OpenWeatherMap API**)
+- [ ] Prévision de charge d'entraînement avec **Prophet** (time series)
+- [ ] Plan d'entraînement adapté selon la météo (**OpenWeatherMap API**)
 - [ ] Détection de surmenage / sous-entraînement
 
+### Module Job Search
+- [ ] Sources supplémentaires (Welcome to the Jungle)
+
 ### Infrastructure
-- [ ] Déploiement cloud sur **Railway.app** ou **GCP Cloud Run** (free tier)
+- [ ] Déploiement cloud sur **Railway.app** (free tier)
 - [ ] Stockage des données sur **Supabase** (PostgreSQL managed, gratuit)
 
 ---
 
 ## Auteur
 
-**Florian Rey** — Ingénieur diplômé Polytech Lyon, Mathématiques Appliquées & Modélisation
+**Florian Rey** — Ingénieur diplômé Polytech Lyon, Mathématiques Appliquées & Modélisation  
 [LinkedIn](https://www.linkedin.com/in/florian-rey-910ab6262/) · [GitHub](https://github.com/Projets-Flo)
