@@ -788,7 +788,7 @@ elif page == "🏃 Sport":
         if runs.empty:
             st.info("Aucune course enregistrée.")
         else:
-            # ── Filtre dates (même logique que tab1) ──────────────────────────
+            # ── Filtre dates ──────────────────────────────────────────────────
             date_min_p = runs["date"].min().date()
             date_max_p = runs["date"].max().date()
 
@@ -866,7 +866,6 @@ elif page == "🏃 Sport":
                     )
                     .round(1)
                     .reset_index()
-                    .sort_values("periode", ascending=False)
                 )
 
                 # ── Génère toutes les périodes même vides ─────────────────────
@@ -881,10 +880,8 @@ elif page == "🏃 Sport":
                     .merge(summary, on="periode", how="left")
                     .fillna({"sessions": 0, "total_km": 0, "total_min": 0})
                 )
-                summary_full["avg_hr"] = summary_full["avg_hr"]
-                summary_full["avg_pace"] = summary_full["avg_pace"]
 
-                # ── Métriques synthèse (basées sur toutes les périodes) ───────
+                # ── Métriques synthèse ────────────────────────────────────────
                 nb_periodes = len(summary_full)
                 periodes_actives = summary_full[summary_full["sessions"] > 0]
                 regularite = round(len(periodes_actives) / nb_periodes * 100) if nb_periodes else 0
@@ -905,14 +902,12 @@ elif page == "🏃 Sport":
                         f"sur {nb_periodes} au total"
                     ),
                 )
-                mc4.metric("Km total sur la période", f"{runs_p['distance_km'].sum():.1f} km")
+                mc4.metric("Km total", f"{runs_p['distance_km'].sum():.1f} km")
 
                 st.divider()
 
-                # ── Axe X : label mois uniquement ─────────────────────────────
-                # On affiche le mois uniquement quand la période change de mois
+                # ── Labels axe X : mois uniquement ────────────────────────────
                 def make_tick_labels(periods, freq):
-                    """Retourne les labels à afficher — mois/année uniquement."""
                     labels = []
                     last_month = None
                     for p in periods:
@@ -932,7 +927,7 @@ elif page == "🏃 Sport":
                     summary_full["periode"].tolist(), periode_map[decoupage]
                 )
 
-                # ── Graphe km par période ─────────────────────────────────────
+                # ── Graphe km ─────────────────────────────────────────────────
                 fig_per = px.bar(
                     summary_full,
                     x="periode",
@@ -954,7 +949,7 @@ elif page == "🏃 Sport":
                 )
                 st.plotly_chart(fig_per, use_container_width=True)
 
-                # ── Graphe séances par période ────────────────────────────────
+                # ── Graphe séances ────────────────────────────────────────────
                 fig_ses = px.bar(
                     summary_full,
                     x="periode",
@@ -976,11 +971,49 @@ elif page == "🏃 Sport":
                 )
                 st.plotly_chart(fig_ses, use_container_width=True)
 
-                # ── Tableau (uniquement périodes actives) ─────────────────────
-                summary_display = summary.copy()
+                # ── Tableau — tri sur valeurs brutes, affichage formaté ────────
+                st.markdown("**Détail par période**")
+                col_tri_p, col_ord_p = st.columns(2)
+                with col_tri_p:
+                    tri_p = st.selectbox(
+                        "Trier par",
+                        [
+                            "Période",
+                            "Séances",
+                            "Km totaux",
+                            "Durée totale",
+                            "FC moy.",
+                            "Allure moy.",
+                        ],
+                        key="per_tri",
+                    )
+                with col_ord_p:
+                    ord_p = st.radio(
+                        "Ordre",
+                        ["↓ Décroissant", "↑ Croissant"],
+                        horizontal=True,
+                        key="per_ord",
+                    )
+
+                tri_col_p = {
+                    "Période": "periode",
+                    "Séances": "sessions",
+                    "Km totaux": "total_km",
+                    "Durée totale": "total_min",  # tri sur minutes brutes
+                    "FC moy.": "avg_hr",
+                    "Allure moy.": "avg_pace",  # tri sur allure brute (décimale)
+                }
+                asc_p = ord_p == "↑ Croissant"
+
+                # On trie sur les valeurs numériques brutes (summary, périodes actives)
+                summary_sorted = summary.sort_values(tri_col_p[tri_p], ascending=asc_p)
+
+                # Formatage uniquement pour l'affichage
+                summary_display = summary_sorted.copy()
                 summary_display["total_min"] = summary_display["total_min"].apply(format_duration)
                 summary_display["avg_pace"] = summary_display["avg_pace"].apply(format_pace)
                 summary_display["avg_hr"] = summary_display["avg_hr"].round(0).astype("Int64")
+
                 st.dataframe(
                     summary_display.rename(
                         columns={
@@ -995,7 +1028,11 @@ elif page == "🏃 Sport":
                     use_container_width=True,
                     hide_index=True,
                     column_config={
+                        "Période": st.column_config.TextColumn("Période"),
                         "Km totaux": st.column_config.NumberColumn("Km totaux", format="%.1f km"),
+                        "Durée totale": st.column_config.TextColumn("Durée totale"),
+                        "Allure moy.": st.column_config.TextColumn("Allure moy."),
+                        "FC moy.": st.column_config.NumberColumn("FC moy."),
                     },
                 )
 
@@ -1011,26 +1048,15 @@ elif page == "🏃 Sport":
                 blocs = s.blocs.get("blocs", []) if isinstance(s.blocs, dict) else []
                 total_m = 0
                 nb_reps = 0
-                best_times: dict = {}
                 for b in blocs:
                     if b.get("type") == "serie":
-                        dist = b.get("distance_m", 0)
                         reps = b.get("repetitions", [])
-                        total_m += dist * len(reps)
+                        total_m += b.get("distance_m", 0) * len(reps)
                         nb_reps += len(reps)
-                        if reps:
-                            best = min(r["temps_sec"] for r in reps)
-                            best_times[dist] = min(best_times.get(dist, float("inf")), best)
                     elif b.get("type") == "serie_double":
-                        dist = b.get("distance_m", 0)
                         groupes = b.get("groupes", [])
-                        total_m += dist * 2 * len(groupes)
+                        total_m += b.get("distance_m", 0) * 2 * len(groupes)
                         nb_reps += len(groupes) * 2
-                        for g in groupes:
-                            for e in g:
-                                t = e["temps_sec"]
-                                best_times[dist] = min(best_times.get(dist, float("inf")), t)
-
                 int_rows.append(
                     {
                         "date": pd.to_datetime(s.date),
@@ -1041,25 +1067,23 @@ elif page == "🏃 Sport":
 
             int_df = pd.DataFrame(int_rows)
 
-            # Filtre dates sur le fractionné aussi
+            # Filtre dates fractionné — utilise p_debut/p_fin si running existe
             if not runs.empty:
                 int_df_filtered = int_df[
                     (int_df["date"] >= p_debut) & (int_df["date"] <= p_fin + pd.Timedelta(days=1))
                 ].copy()
             else:
                 int_df_filtered = int_df.copy()
+                periode_map = {"Semaine": "W", "Mois": "M", "Année": "Y"}
+                label_periode = "période"
 
             if int_df_filtered.empty:
                 st.info("Aucune séance fractionné sur cette période.")
             else:
-                # Métriques fractionné
                 fi1, fi2, fi3 = st.columns(3)
                 fi1.metric("Séances fractionné", len(int_df_filtered))
                 fi2.metric("Répétitions totales", int(int_df_filtered["nb_reps"].sum()))
-                fi3.metric(
-                    "Distance totale",
-                    f"{int(int_df_filtered['distance_m'].sum())} m",
-                )
+                fi3.metric("Distance totale", f"{int(int_df_filtered['distance_m'].sum())} m")
 
                 int_df_filtered["periode"] = (
                     int_df_filtered["date"].dt.to_period(periode_map[decoupage]).astype(str)
@@ -1072,10 +1096,9 @@ elif page == "🏃 Sport":
                         total_reps=("nb_reps", "sum"),
                     )
                     .reset_index()
-                    .sort_values("periode", ascending=False)
                 )
 
-                # Graphe séances fractionné
+                # Graphe fractionné
                 fig_int = px.bar(
                     int_summary.sort_values("periode"),
                     x="periode",
@@ -1095,8 +1118,34 @@ elif page == "🏃 Sport":
                 )
                 st.plotly_chart(fig_int, use_container_width=True)
 
+                # Tableau fractionné avec tri
+                st.markdown("**Détail par période**")
+                col_tri_i, col_ord_i = st.columns(2)
+                with col_tri_i:
+                    tri_i = st.selectbox(
+                        "Trier par",
+                        ["Période", "Séances", "Distance (m)", "Répétitions"],
+                        key="int_tri",
+                    )
+                with col_ord_i:
+                    ord_i = st.radio(
+                        "Ordre",
+                        ["↓ Décroissant", "↑ Croissant"],
+                        horizontal=True,
+                        key="int_ord",
+                    )
+
+                tri_col_i = {
+                    "Période": "periode",
+                    "Séances": "seances",
+                    "Distance (m)": "total_m",
+                    "Répétitions": "total_reps",
+                }
+                asc_i = ord_i == "↑ Croissant"
+                int_sorted = int_summary.sort_values(tri_col_i[tri_i], ascending=asc_i)
+
                 st.dataframe(
-                    int_summary.rename(
+                    int_sorted.rename(
                         columns={
                             "periode": "Période",
                             "seances": "Séances",
@@ -1106,6 +1155,12 @@ elif page == "🏃 Sport":
                     ),
                     use_container_width=True,
                     hide_index=True,
+                    column_config={
+                        "Période": st.column_config.TextColumn("Période"),
+                        "Séances": st.column_config.NumberColumn("Séances"),
+                        "Distance (m)": st.column_config.NumberColumn("Distance (m)"),
+                        "Répétitions": st.column_config.NumberColumn("Répétitions"),
+                    },
                 )
 
     # ── TAB 4 : AJOUTER ──────────────────────────────────────────────────────
