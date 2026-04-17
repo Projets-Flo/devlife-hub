@@ -1071,17 +1071,262 @@ elif page == "🏃 Sport":
 
                 render_interval_card(selected_int, expanded=True)
 
-                st.warning(
-                    "La modification d'une séance fractionné n'est pas supportée. Supprime et resaisis si nécessaire."
+                action_int = st.radio(
+                    "Action",
+                    ["✏️ Modifier", "🗑️ Supprimer"],
+                    horizontal=True,
+                    key="gest_int_action",
                 )
-                if st.button("🗑️ Supprimer cette séance", type="primary", key="del_int_btn"):
-                    with DBSession(engine) as db_session:
-                        s = db_session.get(IntervalSession, selected_int.id)
-                        db_session.delete(s)
-                        db_session.commit()
-                    st.success("Séance supprimée.")
-                    st.cache_data.clear()
-                    st.rerun()
+
+                if action_int == "🗑️ Supprimer":
+                    st.warning(
+                        f"Supprimer la séance du {selected_int.date.strftime('%d/%m/%Y')} ? "
+                        "Action irréversible."
+                    )
+                    if st.button("✅ Confirmer la suppression", type="primary", key="del_int_btn"):
+                        with DBSession(engine) as db_session:
+                            s = db_session.get(IntervalSession, selected_int.id)
+                            db_session.delete(s)
+                            db_session.commit()
+                        st.success("Séance supprimée.")
+                        st.cache_data.clear()
+                        st.rerun()
+
+                elif action_int == "✏️ Modifier":
+                    # Init session_state pour l'édition (une seule fois par séance)
+                    edit_key = f"edit_blocs_{selected_int.id}"
+                    if edit_key not in st.session_state:
+                        st.session_state[edit_key] = list(selected_int.blocs.get("blocs", []))
+                        st.session_state[f"edit_adding_{selected_int.id}"] = False
+
+                    # Date / heure / notes
+                    col_d, col_h = st.columns(2)
+                    with col_d:
+                        edit_date = st.date_input(
+                            "Date",
+                            value=selected_int.date.date(),
+                            key=f"edit_int_date_{selected_int.id}",
+                        )
+                    with col_h:
+                        edit_heure = st.time_input(
+                            "Heure",
+                            value=selected_int.date.time(),
+                            key=f"edit_int_heure_{selected_int.id}",
+                        )
+                    edit_notes = st.text_area(
+                        "Notes",
+                        value=selected_int.notes or "",
+                        key=f"edit_int_notes_{selected_int.id}",
+                    )
+
+                    st.markdown("**Blocs de la séance**")
+                    if not st.session_state[edit_key]:
+                        st.caption("Aucun bloc — ajoute-en un ci-dessous.")
+                    else:
+                        for i, bloc in enumerate(st.session_state[edit_key]):
+                            col_b, col_up, col_dn, col_del = st.columns([6, 1, 1, 1])
+                            with col_b:
+                                st.info(f"**Bloc {i + 1}** — {render_bloc_summary(bloc)}")
+                            with col_up:
+                                if st.button(
+                                    "⬆️", key=f"up_{selected_int.id}_{i}", disabled=(i == 0)
+                                ):
+                                    blocs_list = st.session_state[edit_key]
+                                    blocs_list[i], blocs_list[i - 1] = (
+                                        blocs_list[i - 1],
+                                        blocs_list[i],
+                                    )
+                                    st.rerun()
+                            with col_dn:
+                                if st.button(
+                                    "⬇️",
+                                    key=f"dn_{selected_int.id}_{i}",
+                                    disabled=(i == len(st.session_state[edit_key]) - 1),
+                                ):
+                                    blocs_list = st.session_state[edit_key]
+                                    blocs_list[i], blocs_list[i + 1] = (
+                                        blocs_list[i + 1],
+                                        blocs_list[i],
+                                    )
+                                    st.rerun()
+                            with col_del:
+                                if st.button("🗑️", key=f"del_{selected_int.id}_{i}"):
+                                    st.session_state[edit_key].pop(i)
+                                    st.rerun()
+
+                    # Ajout d'un nouveau bloc en mode édition
+                    adding_key = f"edit_adding_{selected_int.id}"
+                    if not st.session_state.get(adding_key, False):
+                        if st.button("➕ Ajouter un bloc", key=f"add_btn_{selected_int.id}"):
+                            st.session_state[adding_key] = True
+                            st.rerun()
+                    else:
+                        # Réutilise la même logique que render_add_bloc_form mais avec
+                        # une cible différente
+                        st.markdown("---")
+                        st.markdown("**➕ Nouveau bloc**")
+
+                        bloc_type = st.selectbox(
+                            "Type",
+                            ["echauffement", "serie", "serie_double", "recuperation"],
+                            format_func=lambda x: {
+                                "echauffement": "🔥 Échauffement",
+                                "serie": "⚡ Série simple",
+                                "serie_double": "⚡ Série double",
+                                "recuperation": "🧘 Récupération",
+                            }[x],
+                            key=f"edit_new_bloc_type_{selected_int.id}",
+                        )
+                        bloc = {"type": bloc_type}
+
+                        if bloc_type in ["echauffement", "recuperation"]:
+                            mode = st.radio(
+                                "Définir par",
+                                ["Distance (m)", "Durée"],
+                                horizontal=True,
+                                key=f"edit_{bloc_type}_mode_{selected_int.id}",
+                            )
+                            if mode == "Distance (m)":
+                                d = st.number_input(
+                                    "Distance (m)",
+                                    min_value=0,
+                                    step=100,
+                                    value=800,
+                                    key=f"edit_{bloc_type}_d_{selected_int.id}",
+                                )
+                                bloc["distance_m"] = int(d)
+                            else:
+                                m, s_, cs = render_time_input(
+                                    "Durée", f"edit_{bloc_type}_dur_{selected_int.id}"
+                                )
+                                bloc["duree_sec"] = track_time_to_seconds(m, s_, cs)
+
+                        elif bloc_type == "serie":
+                            d = st.number_input(
+                                "Distance (m)",
+                                min_value=0,
+                                step=50,
+                                value=400,
+                                key=f"edit_serie_d_{selected_int.id}",
+                            )
+                            nb = st.number_input(
+                                "Répétitions",
+                                min_value=1,
+                                step=1,
+                                value=6,
+                                key=f"edit_serie_nb_{selected_int.id}",
+                            )
+                            m_r, s_r, cs_r = render_time_input(
+                                "Récupération", f"edit_serie_recup_{selected_int.id}"
+                            )
+                            bloc["distance_m"] = int(d)
+                            bloc["recup_sec"] = track_time_to_seconds(m_r, s_r, cs_r)
+                            reps = []
+                            for i in range(int(nb)):
+                                m_t, s_t, cs_t = render_time_input(
+                                    f"Rép. {i + 1}", f"edit_serie_rep_{selected_int.id}_{i}"
+                                )
+                                reps.append(
+                                    {
+                                        "num": i + 1,
+                                        "temps_sec": track_time_to_seconds(m_t, s_t, cs_t),
+                                    }
+                                )
+                            bloc["repetitions"] = reps
+
+                        elif bloc_type == "serie_double":
+                            d = st.number_input(
+                                "Distance (m)",
+                                min_value=0,
+                                step=50,
+                                value=200,
+                                key=f"edit_sd_d_{selected_int.id}",
+                            )
+                            nb = st.number_input(
+                                "Groupes",
+                                min_value=1,
+                                step=1,
+                                value=3,
+                                key=f"edit_sd_nb_{selected_int.id}",
+                            )
+                            m_p, s_p, cs_p = render_time_input(
+                                "Pause intra-groupe", f"edit_sd_pause_{selected_int.id}"
+                            )
+                            m_r, s_r, cs_r = render_time_input(
+                                "Récupération", f"edit_sd_recup_{selected_int.id}"
+                            )
+                            bloc["distance_m"] = int(d)
+                            bloc["pause_intra_sec"] = track_time_to_seconds(m_p, s_p, cs_p)
+                            bloc["recup_sec"] = track_time_to_seconds(m_r, s_r, cs_r)
+                            groupes = []
+                            for g in range(int(nb)):
+                                st.markdown(f"*Groupe {g + 1}*")
+                                m1, s1, cs1 = render_time_input(
+                                    "Effort 1", f"edit_sd_g{g}_1_{selected_int.id}"
+                                )
+                                m2, s2, cs2 = render_time_input(
+                                    "Effort 2", f"edit_sd_g{g}_2_{selected_int.id}"
+                                )
+                                groupes.append(
+                                    [
+                                        {"num": 1, "temps_sec": track_time_to_seconds(m1, s1, cs1)},
+                                        {"num": 2, "temps_sec": track_time_to_seconds(m2, s2, cs2)},
+                                    ]
+                                )
+                            bloc["groupes"] = groupes
+
+                        col_ok, col_no = st.columns(2)
+                        with col_ok:
+                            if st.button(
+                                "✅ Ajouter",
+                                type="primary",
+                                key=f"confirm_add_{selected_int.id}",
+                            ):
+                                st.session_state[edit_key].append(bloc)
+                                st.session_state[adding_key] = False
+                                st.rerun()
+                        with col_no:
+                            if st.button("❌ Annuler", key=f"cancel_add_{selected_int.id}"):
+                                st.session_state[adding_key] = False
+                                st.rerun()
+
+                    # Bouton enregistrer
+                    st.markdown("---")
+                    col_save, col_reset = st.columns(2)
+                    with col_save:
+                        if st.button(
+                            "💾 Enregistrer les modifications",
+                            type="primary",
+                            key=f"save_int_{selected_int.id}",
+                            disabled=not st.session_state[edit_key]
+                            or st.session_state.get(adding_key, False),
+                        ):
+                            from datetime import datetime as dt_cls
+
+                            from sqlalchemy.orm.attributes import flag_modified
+
+                            with DBSession(engine) as db_session:
+                                s = db_session.get(IntervalSession, selected_int.id)
+                                s.date = dt_cls.combine(edit_date, edit_heure)
+                                s.notes = edit_notes if edit_notes else None
+                                s.blocs = {"blocs": st.session_state[edit_key]}
+                                flag_modified(s, "blocs")
+                                db_session.commit()
+                            st.success("✅ Séance modifiée.")
+                            # Nettoie le session_state
+                            del st.session_state[edit_key]
+                            if adding_key in st.session_state:
+                                del st.session_state[adding_key]
+                            st.cache_data.clear()
+                            st.rerun()
+                    with col_reset:
+                        if st.button(
+                            "🔄 Annuler les modifications", key=f"reset_int_{selected_int.id}"
+                        ):
+                            del st.session_state[edit_key]
+                            if adding_key in st.session_state:
+                                del st.session_state[adding_key]
+                            st.rerun()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
