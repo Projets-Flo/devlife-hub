@@ -165,7 +165,7 @@ def render_bloc_summary(bloc: dict) -> str:
         reps = bloc.get("repetitions", [])
         times = [format_track_time(r["temps_sec"]) for r in reps]
         recup = format_track_time(bloc.get("recup_sec", 0))
-        return f"⚡ {len(reps)}×{bloc.get('distance_m')}m " f"(récup {recup}) : {' | '.join(times)}"
+        return f"⚡ {len(reps)}×{bloc.get('distance_m')}m (récup {recup}) : {' | '.join(times)}"
     if t == "serie_double":
         groupes = bloc.get("groupes", [])
         recup = format_track_time(bloc.get("recup_sec", 0))
@@ -195,9 +195,7 @@ def render_interval_card(s, expanded: bool = False):
         elif b.get("type") == "serie_double":
             total_m += b.get("distance_m", 0) * 2 * len(b.get("groupes", []))
 
-    header = (
-        f"⚡ **{s.date.strftime('%d/%m/%Y')}** — Fractionné" f" — {len(blocs)} blocs — ~{total_m}m"
-    )
+    header = f"⚡ **{s.date.strftime('%d/%m/%Y')}** — Fractionné — {len(blocs)} blocs — ~{total_m}m"
     with st.expander(header, expanded=expanded):
         for i, bloc in enumerate(blocs, 1):
             st.markdown(f"**Bloc {i}** — {render_bloc_summary(bloc)}")
@@ -281,7 +279,7 @@ def render_add_bloc_form():
         st.markdown("**Temps de chaque répétition**")
         reps = []
         for i in range(int(nb_reps)):
-            m_t, s_t, cs_t = render_time_input(f"Rép. {i+1}", f"serie_rep_{i}")
+            m_t, s_t, cs_t = render_time_input(f"Rép. {i + 1}", f"serie_rep_{i}")
             reps.append({"num": i + 1, "temps_sec": track_time_to_seconds(m_t, s_t, cs_t)})
         bloc["repetitions"] = reps
 
@@ -299,7 +297,7 @@ def render_add_bloc_form():
         st.markdown("**Temps de chaque effort**")
         groupes = []
         for g in range(int(nb_groupes)):
-            st.markdown(f"*Groupe {g+1}*")
+            st.markdown(f"*Groupe {g + 1}*")
             m1, s1, cs1 = render_time_input("Effort 1", f"sd_g{g}_1")
             m2, s2, cs2 = render_time_input("Effort 2", f"sd_g{g}_2")
             groupes.append(
@@ -342,7 +340,7 @@ def render_fractionne_form():
         for i, bloc in enumerate(st.session_state.interval_blocs):
             col_b, col_del = st.columns([5, 1])
             with col_b:
-                st.info(f"**Bloc {i+1}** — {render_bloc_summary(bloc)}")
+                st.info(f"**Bloc {i + 1}** — {render_bloc_summary(bloc)}")
             with col_del:
                 if st.button("🗑️", key=f"del_bloc_{i}"):
                     st.session_state.interval_blocs.pop(i)
