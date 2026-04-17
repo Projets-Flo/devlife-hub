@@ -443,72 +443,114 @@ elif page == "🏃 Sport":
         if runs.empty:
             st.info("Aucune course enregistrée.")
         else:
-            stats = parser.stats_running(runs)
+            # ── Filtre dates ──────────────────────────────────────────────────
+            date_min_global = runs["date"].min().date()
+            date_max_global = runs["date"].max().date()
 
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Total courses", stats.get("total_sessions", 0))
-            c2.metric("Km totaux", f"{stats.get('total_km', 0)} km")
-            c3.metric("Plus longue sortie", f"{stats.get('best_km', 0)} km")
-            c4.metric("Sortie moyenne", f"{stats.get('avg_km', 0)} km")
-
-            c5, c6, c7, c8 = st.columns(4)
-            c5.metric("Allure moyenne", format_pace(stats.get("avg_pace", 0)))
-            c6.metric("Meilleure allure", format_pace(stats.get("best_pace", 0)))
-            c7.metric("FC moyenne", f"{stats.get('avg_hr', 0):.0f} bpm")
-            c8.metric("Calories totales", f"{stats.get('total_calories', 0):,}")
-
-            st.divider()
-
-            periode = st.selectbox(
-                "Période",
-                ["Tout", "12 derniers mois", "6 derniers mois", "3 derniers mois"],
-                key="stats_periode",
-            )
-            cutoffs = {"3 derniers mois": 90, "6 derniers mois": 180, "12 derniers mois": 365}
-            runs_filtered = runs.copy()
-            if periode in cutoffs:
-                runs_filtered = runs_filtered[
-                    runs_filtered["date"]
-                    >= runs_filtered["date"].max() - pd.Timedelta(days=cutoffs[periode])
-                ]
-
-            st.subheader("Distance par sortie")
-            fig1 = px.scatter(
-                runs_filtered,
-                x="date",
-                y="distance_km",
-                color="avg_hr",
-                color_continuous_scale="RdYlGn_r",
-                labels={"date": "", "distance_km": "km", "avg_hr": "FC moy."},
-                hover_data=["duration_min", "avg_pace_min_km"],
-            )
-            fig1.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0))
-            st.plotly_chart(fig1, use_container_width=True)
-
-            runs_pace = runs_filtered.dropna(subset=["avg_pace_min_km"])
-            if not runs_pace.empty:
-                st.subheader("Évolution de l'allure")
-                fig2 = px.line(
-                    runs_pace.sort_values("date"),
-                    x="date",
-                    y="avg_pace_min_km",
-                    labels={"date": "", "avg_pace_min_km": "min/km"},
+            col_mode, col_filtre = st.columns([1, 2])
+            with col_mode:
+                mode_filtre = st.radio(
+                    "Filtrer par",
+                    ["Période prédéfinie", "Dates personnalisées"],
+                    horizontal=False,
+                    key="run_filter_mode",
                 )
-                fig2.update_layout(height=250, margin=dict(l=0, r=0, t=0, b=0))
-                fig2.update_yaxes(autorange="reversed")
-                st.plotly_chart(fig2, use_container_width=True)
+            with col_filtre:
+                if mode_filtre == "Période prédéfinie":
+                    periode = st.selectbox(
+                        "Période",
+                        [
+                            "Tout",
+                            "Ce mois-ci",
+                            "3 derniers mois",
+                            "6 derniers mois",
+                            "Cette année",
+                            "12 derniers mois",
+                        ],
+                        key="stats_periode",
+                    )
+                    today = pd.Timestamp.today().normalize()
+                    cutoffs = {
+                        "Ce mois-ci": today.replace(day=1),
+                        "3 derniers mois": today - pd.Timedelta(days=90),
+                        "6 derniers mois": today - pd.Timedelta(days=180),
+                        "Cette année": today.replace(month=1, day=1),
+                        "12 derniers mois": today - pd.Timedelta(days=365),
+                    }
+                    date_debut = cutoffs.get(periode, pd.Timestamp(date_min_global))
+                    date_fin = pd.Timestamp(date_max_global)
+                else:
+                    col_d1, col_d2 = st.columns(2)
+                    with col_d1:
+                        date_debut = pd.Timestamp(
+                            st.date_input("Du", value=date_min_global, key="run_date_from")
+                        )
+                    with col_d2:
+                        date_fin = pd.Timestamp(
+                            st.date_input("Au", value=date_max_global, key="run_date_to")
+                        )
 
-            runs_hr = runs_filtered.dropna(subset=["avg_hr"])
-            if not runs_hr.empty:
-                st.subheader("Évolution de la fréquence cardiaque")
-                fig3 = px.line(
-                    runs_hr.sort_values("date"),
+            runs_filtered = runs[
+                (runs["date"] >= date_debut) & (runs["date"] <= date_fin + pd.Timedelta(days=1))
+            ].copy()
+
+            if runs_filtered.empty:
+                st.warning("Aucune course sur cette période.")
+            else:
+                # Métriques recalculées sur la période filtrée
+                stats = parser.stats_running(runs_filtered)
+
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Total courses", stats.get("total_sessions", 0))
+                c2.metric("Km totaux", f"{stats.get('total_km', 0)} km")
+                c3.metric("Plus longue sortie", f"{stats.get('best_km', 0)} km")
+                c4.metric("Sortie moyenne", f"{stats.get('avg_km', 0)} km")
+
+                c5, c6, c7, c8 = st.columns(4)
+                c5.metric("Allure moyenne", format_pace(stats.get("avg_pace", 0)))
+                c6.metric("Meilleure allure", format_pace(stats.get("best_pace", 0)))
+                c7.metric("FC moyenne", f"{stats.get('avg_hr', 0):.0f} bpm")
+                c8.metric("Calories totales", f"{stats.get('total_calories', 0):,}")
+
+                st.divider()
+
+                st.subheader("Distance par sortie")
+                fig1 = px.scatter(
+                    runs_filtered,
                     x="date",
-                    y="avg_hr",
-                    labels={"date": "", "avg_hr": "FC moy. (bpm)"},
+                    y="distance_km",
+                    color="avg_hr",
+                    color_continuous_scale="RdYlGn_r",
+                    labels={"date": "", "distance_km": "km", "avg_hr": "FC moy."},
+                    hover_data=["duration_min", "avg_pace_min_km"],
                 )
-                fig3.update_layout(height=250, margin=dict(l=0, r=0, t=0, b=0))
-                st.plotly_chart(fig3, use_container_width=True)
+                fig1.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0))
+                st.plotly_chart(fig1, use_container_width=True)
+
+                runs_pace = runs_filtered.dropna(subset=["avg_pace_min_km"])
+                if not runs_pace.empty:
+                    st.subheader("Évolution de l'allure")
+                    fig2 = px.line(
+                        runs_pace.sort_values("date"),
+                        x="date",
+                        y="avg_pace_min_km",
+                        labels={"date": "", "avg_pace_min_km": "min/km"},
+                    )
+                    fig2.update_layout(height=250, margin=dict(l=0, r=0, t=0, b=0))
+                    fig2.update_yaxes(autorange="reversed")
+                    st.plotly_chart(fig2, use_container_width=True)
+
+                runs_hr = runs_filtered.dropna(subset=["avg_hr"])
+                if not runs_hr.empty:
+                    st.subheader("Évolution de la fréquence cardiaque")
+                    fig3 = px.line(
+                        runs_hr.sort_values("date"),
+                        x="date",
+                        y="avg_hr",
+                        labels={"date": "", "avg_hr": "FC moy. (bpm)"},
+                    )
+                    fig3.update_layout(height=250, margin=dict(l=0, r=0, t=0, b=0))
+                    st.plotly_chart(fig3, use_container_width=True)
 
         # ── Fractionné ───────────────────────────────────────────────────────
         st.divider()
