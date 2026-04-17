@@ -570,24 +570,66 @@ elif page == "🏃 Sport":
                     format_func=lambda x: f"{x}m",
                     key="frac_dist_choice",
                 )
-                subset = perf_df[perf_df["distance_m"] == dist_choice].sort_values("date")
-                subset["rep_num"] = range(1, len(subset) + 1)
-                subset["temps_fmt"] = subset["temps_sec"].apply(format_track_time)
 
-                fig_frac = px.scatter(
-                    subset,
-                    x="date",
-                    y="temps_sec",
-                    labels={"date": "", "temps_sec": "Temps (sec)"},
-                    hover_data=["temps_fmt"],
-                    trendline="lowess",
+                subset = perf_df[perf_df["distance_m"] == dist_choice].copy()
+                subset["date_jour"] = subset["date"].dt.date
+
+                # Meilleur temps par séance
+                best_per_session = subset.groupby("date_jour")["temps_sec"].min().reset_index()
+                best_per_session.columns = ["date_jour", "temps_sec"]
+                best_per_session["date"] = pd.to_datetime(best_per_session["date_jour"])
+                best_per_session["temps_fmt"] = best_per_session["temps_sec"].apply(
+                    format_track_time
                 )
-                fig_frac.update_layout(height=280, margin=dict(l=0, r=0, t=0, b=0))
-                fig_frac.update_yaxes(autorange="reversed")
-                st.plotly_chart(fig_frac, use_container_width=True)
-                st.caption(
-                    "Axe inversé : plus bas = plus rapide. La courbe de tendance montre ta progression."
+                best_per_session = best_per_session.sort_values("date")
+
+                # Toutes les perfs
+                subset["temps_fmt"] = subset["temps_sec"].apply(format_track_time)
+                subset["date"] = pd.to_datetime(subset["date"])
+
+                import plotly.graph_objects as go
+
+                st.subheader("Progression — meilleur temps par séance")
+                fig_best = go.Figure()
+                fig_best.add_trace(
+                    go.Scatter(
+                        x=best_per_session["date"],
+                        y=best_per_session["temps_sec"],
+                        mode="lines+markers",
+                        name="Meilleur temps",
+                        line=dict(color="#1D9E75", width=2),
+                        marker=dict(color="#1D9E75", size=9),
+                        hovertext=best_per_session["temps_fmt"],
+                        hovertemplate="%{hovertext}<extra></extra>",
+                    )
                 )
+                fig_best.update_layout(
+                    height=260,
+                    margin=dict(l=0, r=0, t=0, b=0),
+                    yaxis=dict(autorange="reversed", title="Temps (sec)"),
+                )
+                st.plotly_chart(fig_best, use_container_width=True)
+
+                st.subheader("Toutes les répétitions")
+                fig_all = go.Figure()
+                fig_all.add_trace(
+                    go.Scatter(
+                        x=subset["date"],
+                        y=subset["temps_sec"],
+                        mode="markers",
+                        marker=dict(color="#378ADD", size=8, opacity=0.7),
+                        hovertext=subset["temps_fmt"],
+                        hovertemplate="%{hovertext}<extra></extra>",
+                        showlegend=False,
+                    )
+                )
+                fig_all.update_layout(
+                    height=260,
+                    margin=dict(l=0, r=0, t=0, b=0),
+                    yaxis=dict(autorange="reversed", title="Temps (sec)"),
+                )
+                st.plotly_chart(fig_all, use_container_width=True)
+                st.caption("Axe inversé : plus bas = plus rapide")
 
     # ── TAB 2 : DÉTAIL ───────────────────────────────────────────────────────
     with tab2:
