@@ -517,7 +517,6 @@ elif page == "🏃 Sport":
         if not intervals:
             st.info("Aucune séance de fractionné enregistrée.")
         else:
-            # Collecte toutes les répétitions avec distance et date
             perf_rows = []
             for s in intervals:
                 blocs = s.blocs.get("blocs", []) if isinstance(s.blocs, dict) else []
@@ -525,111 +524,158 @@ elif page == "🏃 Sport":
                     if bloc.get("type") == "serie":
                         dist = bloc.get("distance_m", 0)
                         for rep in bloc.get("repetitions", []):
+                            t = rep["temps_sec"]
                             perf_rows.append(
                                 {
                                     "date": s.date,
                                     "distance_m": dist,
-                                    "temps_sec": rep["temps_sec"],
+                                    "temps_sec": t,
+                                    "vitesse_kmh": round(dist * 3.6 / t, 2) if t > 0 else 0,
                                 }
                             )
                     elif bloc.get("type") == "serie_double":
                         dist = bloc.get("distance_m", 0)
                         for groupe in bloc.get("groupes", []):
                             for effort in groupe:
+                                t = effort["temps_sec"]
                                 perf_rows.append(
                                     {
                                         "date": s.date,
                                         "distance_m": dist,
-                                        "temps_sec": effort["temps_sec"],
+                                        "temps_sec": t,
+                                        "vitesse_kmh": round(dist * 3.6 / t, 2) if t > 0 else 0,
                                     }
                                 )
 
             if perf_rows:
                 perf_df = pd.DataFrame(perf_rows)
                 perf_df["date"] = pd.to_datetime(perf_df["date"])
-
-                # Stats par distance
                 distances = sorted(perf_df["distance_m"].unique())
-                st.markdown("**Meilleurs temps par distance**")
-                cols = st.columns(min(len(distances), 4))
-                for i, dist in enumerate(distances):
-                    subset = perf_df[perf_df["distance_m"] == dist]
-                    best = subset["temps_sec"].min()
-                    last = subset.sort_values("date").iloc[-1]["temps_sec"]
-                    cols[i % 4].metric(
-                        f"{dist}m",
-                        format_track_time(best),
-                        delta=f"dernier: {format_track_time(last)}",
-                        delta_color="off",
+
+                # ── Tableau récapitulatif par distance ────────────────────────
+                st.markdown("**Récapitulatif par distance**")
+
+                table_rows = []
+                for dist in distances:
+                    sub = perf_df[perf_df["distance_m"] == dist]
+                    best_t = sub["temps_sec"].min()
+                    avg_t = sub["temps_sec"].mean()
+                    last_t = sub.sort_values("date").iloc[-1]["temps_sec"]
+                    best_v = sub["vitesse_kmh"].max()
+                    avg_v = sub["vitesse_kmh"].mean()
+                    last_v = sub.sort_values("date").iloc[-1]["vitesse_kmh"]
+                    nb = len(sub)
+                    table_rows.append(
+                        {
+                            "Distance": f"{int(dist)}m",
+                            "Rép.": nb,
+                            "⚡ Meilleur temps": format_track_time(best_t),
+                            "🏁 Meilleure vitesse": f"{best_v:.1f} km/h",
+                            "∅ Vitesse moy.": f"{avg_v:.1f} km/h",
+                            "🕐 Dernier temps": format_track_time(last_t),
+                            "📈 Dernière vitesse": f"{last_v:.1f} km/h",
+                        }
                     )
 
-                # Graphe progression par distance
+                table_df = pd.DataFrame(table_rows)
+                st.dataframe(
+                    table_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Distance": st.column_config.TextColumn("Distance", width="small"),
+                        "Rép.": st.column_config.NumberColumn("Rép.", width="small"),
+                        "⚡ Meilleur temps": st.column_config.TextColumn("⚡ Meilleur temps"),
+                        "🏁 Meilleure vitesse": st.column_config.TextColumn("🏁 Meilleure vitesse"),
+                        "∅ Vitesse moy.": st.column_config.TextColumn("∅ Vitesse moy."),
+                        "🕐 Dernier temps": st.column_config.TextColumn("🕐 Dernier temps"),
+                        "📈 Dernière vitesse": st.column_config.TextColumn("📈 Dernière vitesse"),
+                    },
+                )
+
+                st.divider()
+
+                # ── Graphes par distance ───────────────────────────────────────
                 dist_choice = st.selectbox(
                     "Voir progression sur",
                     distances,
-                    format_func=lambda x: f"{x}m",
+                    format_func=lambda x: f"{int(x)}m",
                     key="frac_dist_choice",
                 )
 
                 subset = perf_df[perf_df["distance_m"] == dist_choice].copy()
                 subset["date_jour"] = subset["date"].dt.date
+                subset["temps_fmt"] = subset["temps_sec"].apply(format_track_time)
+                subset["hover"] = subset.apply(
+                    lambda r: f"{r['temps_fmt']} — {r['vitesse_kmh']:.1f} km/h", axis=1
+                )
 
-                # Meilleur temps par séance
-                best_per_session = subset.groupby("date_jour")["temps_sec"].min().reset_index()
-                best_per_session.columns = ["date_jour", "temps_sec"]
+                # Meilleure vitesse par séance (= meilleur temps)
+                best_per_session = subset.groupby("date_jour")["vitesse_kmh"].max().reset_index()
+                best_per_session.columns = ["date_jour", "vitesse_kmh"]
                 best_per_session["date"] = pd.to_datetime(best_per_session["date_jour"])
+                best_per_session = best_per_session.sort_values("date")
+                best_per_session["temps_sec"] = dist_choice * 3.6 / best_per_session["vitesse_kmh"]
                 best_per_session["temps_fmt"] = best_per_session["temps_sec"].apply(
                     format_track_time
                 )
-                best_per_session = best_per_session.sort_values("date")
-
-                # Toutes les perfs
-                subset["temps_fmt"] = subset["temps_sec"].apply(format_track_time)
-                subset["date"] = pd.to_datetime(subset["date"])
+                best_per_session["hover"] = best_per_session.apply(
+                    lambda r: f"{r['temps_fmt']} — {r['vitesse_kmh']:.1f} km/h", axis=1
+                )
 
                 import plotly.graph_objects as go
 
-                st.subheader("Progression — meilleur temps par séance")
+                # Graphe 1 — progression meilleure vitesse
                 fig_best = go.Figure()
                 fig_best.add_trace(
                     go.Scatter(
                         x=best_per_session["date"],
-                        y=best_per_session["temps_sec"],
+                        y=best_per_session["vitesse_kmh"],
                         mode="lines+markers",
-                        name="Meilleur temps",
                         line=dict(color="#1D9E75", width=2),
                         marker=dict(color="#1D9E75", size=9),
-                        hovertext=best_per_session["temps_fmt"],
+                        hovertext=best_per_session["hover"],
                         hovertemplate="%{hovertext}<extra></extra>",
+                        showlegend=False,
                     )
                 )
                 fig_best.update_layout(
-                    height=260,
-                    margin=dict(l=0, r=0, t=0, b=0),
-                    yaxis=dict(title="Temps (sec)"),
+                    height=270,
+                    margin=dict(l=0, r=0, t=30, b=0),
+                    yaxis=dict(title="Vitesse (km/h)"),
+                    xaxis=dict(title=""),
+                    title=dict(
+                        text=f"Meilleure vitesse par séance — {int(dist_choice)}m",
+                        font=dict(size=13),
+                    ),
                 )
                 st.plotly_chart(fig_best, use_container_width=True)
 
-                st.subheader("Toutes les répétitions")
+                # Graphe 2 — toutes les répétitions
                 fig_all = go.Figure()
                 fig_all.add_trace(
                     go.Scatter(
                         x=subset["date"],
-                        y=subset["temps_sec"],
+                        y=subset["vitesse_kmh"],
                         mode="markers",
                         marker=dict(color="#378ADD", size=8, opacity=0.7),
-                        hovertext=subset["temps_fmt"],
+                        hovertext=subset["hover"],
                         hovertemplate="%{hovertext}<extra></extra>",
                         showlegend=False,
                     )
                 )
                 fig_all.update_layout(
-                    height=260,
-                    margin=dict(l=0, r=0, t=0, b=0),
-                    yaxis=dict(title="Temps (sec)"),
+                    height=270,
+                    margin=dict(l=0, r=0, t=30, b=0),
+                    yaxis=dict(title="Vitesse (km/h)"),
+                    xaxis=dict(title=""),
+                    title=dict(
+                        text=f"Toutes les répétitions — {int(dist_choice)}m",
+                        font=dict(size=13),
+                    ),
                 )
                 st.plotly_chart(fig_all, use_container_width=True)
-                st.caption("Axe inversé : plus bas = plus rapide")
+                st.caption("Plus haut = plus rapide · Au survol : temps + vitesse")
 
     # ── TAB 2 : DÉTAIL ───────────────────────────────────────────────────────
     with tab2:
